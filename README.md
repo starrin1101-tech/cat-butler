@@ -1,16 +1,16 @@
-# cat-butler 貓咪罐頭與飲食記錄工具
+# 🐾 貓管家 (Cat Manager)
 
 本專案為一個純前端運作的貓咪飲食與營養標籤紀錄工具。
 
 > ⚠️ **聲明 Statement**：
-> 本專案之所有程式碼（HTML / CSS / JavaScript）與介面邏輯，**完全由 AI 協助生成與製作**。
+> 本專案之所有程式碼（HTML / CSS / JavaScript）與介面邏輯，完全由 AI 協助生成與製作。
 
-## 特點
-- **隱私安全**：所有資料皆儲存於使用者本地瀏覽器（localStorage），不會上傳至任何伺服器。
-- **備份機制**：支援 JSON 格式之匯入與匯出功能。
-# 🐾 貓管家 (Cat Manager)
+---
 
-**貓管家** 是一款專為多貓家庭與寵物主人設計的網頁端綜合管理系統。透過直觀且豐富的介面，協助飼主輕鬆紀錄貓咪健康資訊、飲食週期、生日提醒，並提供豐富的動態視覺效果與數據統計。
+## ✨ 專案特點 (Highlights)
+
+* **🔒 隱私安全**：所有資料皆儲存於使用者本地瀏覽器（`localStorage`），不會上傳至任何伺服器。
+* **💾 備份機制**：支援 JSON 格式之匯入與匯出功能，方便隨時備份與移轉資料。
 
 ---
 
@@ -40,6 +40,7 @@
 
 * **Core Framework**: [React 19](https://react.dev/)
 * **Build / Runtime**: [Vite](https://vitejs.dev/) / ES Modules (`modulepreload`)
+* **Storage**: LocalStorage API
 * **Styling**: Native CSS3 Animations, CSS Keyframes, CSS Grid / Flexbox
 * **Icons**: Modern Inline SVG Icon Set
 * **Theme Support**: Dark Mode / Light Mode Ready
