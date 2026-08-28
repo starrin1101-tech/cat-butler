@@ -2425,19 +2425,21 @@ document.getElementById('pd-edit-btn').onclick=()=>{
 #cal-fab-zone:hover #cal-fab,#cal-fab:focus-visible{transform:translateX(0);}
 @media (hover:none){#cal-fab{transform:translateX(0);}}
 #cal-overlay{display:none;position:fixed;inset:0;z-index:9800;background:rgba(0,0,0,.55);backdrop-filter:blur(6px);align-items:center;justify-content:center;padding:20px;}
+@media(max-width:600px){#cal-overlay{padding:0;}#cal-panel{border-radius:0;height:100dvh;max-width:100%;}}
 #cal-overlay.open{display:flex;}
 #cal-panel{width:100%;max-width:920px;height:min(88vh,700px);background:#fff;border-radius:24px;box-shadow:0 40px 120px rgba(0,0,0,.35);display:flex;flex-direction:column;overflow:hidden;animation:calIn .22s ease both;}
 @keyframes calIn{from{opacity:0;transform:scale(.97);}to{opacity:1;transform:none;}}
 #cal-head{flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:16px 20px;background:linear-gradient(135deg,#8b5cf6 0%,#6d28d9 100%);}
 #cal-head-title{font-size:16px;font-weight:900;color:#fff;display:flex;align-items:center;gap:8px;}
-#cal-close-btn,#cal-refresh-btn{width:32px;height:32px;border-radius:10px;border:none;background:rgba(255,255,255,.18);color:#fff;font-size:15px;cursor:pointer;transition:background .15s;display:flex;align-items:center;justify-content:center;}
-#cal-refresh-btn:hover{background:rgba(255,255,255,.3);}
-#cal-close-btn:hover{background:rgba(255,255,255,.3);}
+#cal-close-btn,#cal-refresh-btn{width:32px;height:32px;border-radius:10px;border:none;background:rgba(255,255,255,.18);color:#fff;font-size:15px;cursor:pointer;transition:background .15s,box-shadow .2s ease;display:flex;align-items:center;justify-content:center;}
+#cal-refresh-btn:hover{background:rgba(255,255,255,.3);box-shadow:0 0 0 3px rgba(255,255,255,.25),0 0 14px rgba(167,139,250,.7);}
+#cal-close-btn:hover{background:rgba(255,255,255,.3);box-shadow:0 0 0 3px rgba(255,255,255,.25),0 0 14px rgba(167,139,250,.7);}
 #cal-body{flex:1;min-height:0;}
 #cal-body iframe{width:100%;height:100%;border:0;display:block;}
 
 /* ── settings overlay ── */
 #settings-overlay{display:none;position:fixed;inset:0;z-index:9900;background:rgba(0,0,0,.55);backdrop-filter:blur(6px);align-items:center;justify-content:center;padding:20px;}
+@media(max-width:600px){#settings-overlay{padding:12px;}}
 #settings-overlay.open{display:flex;}
 #settings-panel{width:100%;max-width:440px;background:#fff;border-radius:22px;box-shadow:0 40px 120px rgba(0,0,0,.35);overflow:hidden;animation:calIn .2s ease both;}
 #settings-head{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;background:linear-gradient(135deg,#8b5cf6 0%,#6d28d9 100%);}
