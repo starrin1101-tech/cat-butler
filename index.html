@@ -4,6 +4,17 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>貓管家</title>
+
+    <!-- ===== PWA 設定 ===== -->
+    <link rel="manifest" href="./manifest.json" />
+    <meta name="theme-color" content="#7c3aed" />
+    <meta name="description" content="追蹤家裡開銷、開封壽命、保質期警戒與囤貨數量的貓咪物資管理小工具" />
+    <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
+    <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="貓管家" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <style>
 
       /* ===== Birthday Animation System ===== */
@@ -2580,6 +2591,32 @@ document.getElementById('pd-edit-btn').onclick=()=>{
     window.dispatchEvent(new CustomEvent('cat-settings-updated'));
   };
 })();
+</script>
+
+<script>
+// ===== PWA: 註冊 Service Worker（讓網頁可安裝、離線也能開） =====
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function () {
+    navigator.serviceWorker.register('./sw.js').then(function (reg) {
+      // 每次開啟時檢查一下有沒有新版本
+      reg.update();
+      reg.addEventListener('updatefound', function () {
+        var newWorker = reg.installing;
+        if (!newWorker) return;
+        newWorker.addEventListener('statechange', function () {
+          if (newWorker.state === 'activated') {
+            try {
+              typeof window.showCatToast === 'function' &&
+                window.showCatToast('已更新到最新版本，重新整理即可套用', 'success');
+            } catch (e) {}
+          }
+        });
+      });
+    }).catch(function (err) {
+      console.warn('[貓管家] Service Worker 註冊失敗:', err);
+    });
+  });
+}
 </script>
 
 </body>
