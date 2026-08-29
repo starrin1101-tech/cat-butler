@@ -4,16 +4,6 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>貓管家</title>
-
-    <!-- ===== PWA 設定 ===== -->
-    <link rel="manifest" href="./manifest.json" />
-    <meta name="theme-color" content="#7c3aed" />
-    <meta name="description" content="追蹤家裡開銷、開封壽命、保質期警戒與囤貨數量的貓咪物資管理小工具" />
-    <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="貓管家" />
-    <meta name="mobile-web-app-capable" content="yes" />
     <style>
 
       /* ===== Birthday Animation System ===== */
@@ -2590,92 +2580,6 @@ document.getElementById('pd-edit-btn').onclick=()=>{
     window.dispatchEvent(new CustomEvent('cat-settings-updated'));
   };
 })();
-</script>
-
-<style>
-/* ── 手機版：側邊欄預設收合成一列，點漢堡按鈕才展開 ── */
-@media (max-width:767px){
-  aside{ position:sticky!important; top:0; z-index:70; padding-bottom:18px; }
-  #mnav-toggle-btn{ display:flex!important; }
-  aside nav,
-  #inv-stock-widget,
-  aside > div.mt-8.pt-5{
-    max-height:0; opacity:0; overflow:hidden;
-    margin-top:0!important; padding-top:0!important; border-top-width:0!important;
-    transition:max-height .28s ease, opacity .2s ease, margin-top .28s ease, padding-top .28s ease;
-  }
-  aside.mnav-open nav{ max-height:600px; opacity:1; margin-top:.375rem!important; }
-  aside.mnav-open #inv-stock-widget{ max-height:420px; opacity:1; margin-top:24px!important; padding-top:20px!important; border-top-width:1px!important; }
-  aside.mnav-open > div.mt-8.pt-5{ max-height:420px; opacity:1; margin-top:2rem!important; padding-top:1.25rem!important; border-top-width:1px!important; }
-}
-@media (min-width:768px){ #mnav-toggle-btn{ display:none!important; } }
-</style>
-<script>
-// ===== 手機版收合側邊欄：漢堡按鈕開關 =====
-(function(){
-  'use strict';
-  function initMobileNav(){
-    const aside=document.querySelector('aside');
-    if(!aside||aside._mnavInit) return;
-    const logoRow=aside.querySelector('div.flex.items-center.gap-2.mb-2.select-none');
-    const nav=aside.querySelector('nav');
-    if(!logoRow||!nav) return;
-    aside._mnavInit=true;
-
-    const btn=document.createElement('button');
-    btn.id='mnav-toggle-btn';
-    btn.type='button';
-    btn.setAttribute('aria-label','開啟選單');
-    btn.textContent='☰';
-    btn.style.cssText='margin-left:auto;background:rgba(255,255,255,.1);border:none;color:#fff;width:34px;height:34px;border-radius:10px;font-size:16px;cursor:pointer;align-items:center;justify-content:center;flex-shrink:0;display:none;';
-    logoRow.appendChild(btn);
-
-    btn.addEventListener('click',function(){
-      const open=aside.classList.toggle('mnav-open');
-      btn.textContent=open?'✕':'☰';
-      btn.setAttribute('aria-label',open?'關閉選單':'開啟選單');
-    });
-    // 點任何分類頁籤後自動收起選單（手機上點完就直接看內容）
-    nav.addEventListener('click',function(e){
-      if(e.target.closest('button')){
-        aside.classList.remove('mnav-open');
-        btn.textContent='☰';
-      }
-    });
-  }
-  let n=0;
-  const t=setInterval(function(){
-    initMobileNav();
-    const aside=document.querySelector('aside');
-    if((aside&&aside._mnavInit)||++n>60) clearInterval(t);
-  },500);
-})();
-</script>
-
-<script>
-// ===== PWA: 註冊 Service Worker（讓網頁可安裝、離線也能開） =====
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', function () {
-    navigator.serviceWorker.register('./sw.js').then(function (reg) {
-      // 每次開啟時檢查一下有沒有新版本
-      reg.update();
-      reg.addEventListener('updatefound', function () {
-        var newWorker = reg.installing;
-        if (!newWorker) return;
-        newWorker.addEventListener('statechange', function () {
-          if (newWorker.state === 'activated') {
-            try {
-              typeof window.showCatToast === 'function' &&
-                window.showCatToast('已更新到最新版本，重新整理即可套用', 'success');
-            } catch (e) {}
-          }
-        });
-      });
-    }).catch(function (err) {
-      console.warn('[貓管家] Service Worker 註冊失敗:', err);
-    });
-  });
-}
 </script>
 
 </body>
