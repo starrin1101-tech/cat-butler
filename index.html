@@ -4,6 +4,16 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>貓管家</title>
+
+    <!-- ===== PWA 設定 ===== -->
+    <link rel="manifest" href="./manifest.json" />
+    <meta name="theme-color" content="#7c3aed" />
+    <meta name="description" content="追蹤家裡開銷、開封壽命、保質期警戒與囤貨數量的貓咪物資管理小工具" />
+    <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="貓管家" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <style>
 
       /* ===== Birthday Animation System ===== */
@@ -2580,6 +2590,839 @@ document.getElementById('pd-edit-btn').onclick=()=>{
     window.dispatchEvent(new CustomEvent('cat-settings-updated'));
   };
 })();
+</script>
+
+<style>
+/* ── 手機版：側邊欄預設收合成一列，點漢堡按鈕才展開 ── */
+@media (max-width:767px){
+  aside{ position:sticky!important; top:0; z-index:70; padding-bottom:18px; }
+  #mnav-toggle-btn{ display:flex!important; }
+  aside nav,
+  #inv-stock-widget,
+  aside > div.mt-8.pt-5{
+    max-height:0; opacity:0; overflow:hidden;
+    margin-top:0!important; padding-top:0!important; border-top-width:0!important;
+    transition:max-height .28s ease, opacity .2s ease, margin-top .28s ease, padding-top .28s ease;
+  }
+  aside.mnav-open nav{ max-height:600px; opacity:1; margin-top:.375rem!important; }
+  aside.mnav-open #inv-stock-widget{ max-height:420px; opacity:1; margin-top:24px!important; padding-top:20px!important; border-top-width:1px!important; }
+  aside.mnav-open > div.mt-8.pt-5{ max-height:420px; opacity:1; margin-top:2rem!important; padding-top:1.25rem!important; border-top-width:1px!important; }
+}
+@media (min-width:768px){ #mnav-toggle-btn{ display:none!important; } }
+
+/* ── 手機版：寵物資訊 / 物資資訊彈窗，內距與晶片號碼欄位縮小避免擁擠 ── */
+@media (max-width:480px){
+  [class*="rounded-[32px] w-full max-w-3xl shadow-2xl overflow-hidden border border-gray-100 dark:border-zinc-800 flex flex-col my-8"] [class*="p-6 md:p-8 overflow-y-auto max-h-[calc(100vh-140px)] space-y-6"]{
+    padding-left:1rem!important;
+    padding-right:1rem!important;
+  }
+  [class*="flex gap-4 items-center bg-gray-50/50 dark:bg-zinc-850/20 p-4 rounded-3xl"]{
+    flex-wrap:wrap;
+    row-gap:12px;
+  }
+  #chip-seg-0,#chip-seg-1,#chip-seg-2{
+    font-size:12px!important;
+    padding-left:4px!important;
+    padding-right:4px!important;
+  }
+}
+
+/* ── 手機版：寵物詳情面板頂部（頭像/名字/天數/編輯按鈕）在窄螢幕會擠爆溢出，改成自動換行 ── */
+@media (max-width:480px){
+  #pd-hero-inner{flex-wrap:wrap;row-gap:10px;}
+  #pd-hero-r{flex:1 1 auto;min-width:110px;}
+  #pd-dstrip{flex:1 1 100%;border-left:none;padding-left:0;border-top:1.5px solid rgba(255,255,255,.35);padding-top:9px;flex-direction:row;align-items:center;justify-content:space-between;order:3;}
+  #pd-hbtns{margin-left:0;}
+}
+
+/* ── 手機版：體重統計 3 張小卡在窄螢幕會被裁掉最右邊，縮小最小寬度讓它排得下 ── */
+@media (max-width:480px){
+  .pd-w-stats{grid-template-columns:repeat(auto-fit,minmax(88px,1fr));gap:6px;}
+  .pd-w-stat{padding:9px 10px;}
+}
+
+/* ── 手機版：新增體重那排「日期/公斤/新增」擠成一排時，日期輸入框太窄，
+   原生日期選擇器會顯示不全（例如只看到08/29沒看到年份），改成日期單獨一行 ── */
+@media (max-width:420px){
+  .pd-addrow{grid-template-columns:1fr;row-gap:8px;}
+  .pd-addrow .pd-add-btn{width:100%;justify-content:center;}
+}
+
+/* ── 修正：寵物體重圖表 SVG 缺少響應式寬度，導致手機上顯示異常/被裁切（加強版，強制生效） ── */
+#pd-panel,#pd-body,.pd-tab-content,.pd-chart-box{max-width:100%;box-sizing:border-box;}
+#pd-body{overflow-x:hidden;}
+.pd-chart-box{width:100%;overflow:hidden;box-sizing:border-box;}
+.pd-chart-box svg,#pd-chart-svg{
+  width:100%!important;
+  max-width:100%!important;
+  height:auto!important;
+  display:block!important;
+}
+
+/* ── 手機版：寵物詳情頁頂部資訊列在窄螢幕會被硬擠超出邊界，改成可換行 ── */
+@media (max-width:480px){
+  #pd-hero-inner{flex-wrap:wrap;row-gap:10px;}
+  #pd-dstrip{flex:1 1 100%;flex-direction:row;align-items:center;justify-content:space-between;
+    border-left:none;border-top:1.5px solid rgba(255,255,255,.35);padding-left:0;padding-top:8px;}
+  /* 體重統計卡片（目前體重/歷史最重/近一個月變化）縮小最小寬度，避免第三張被裁掉 */
+  .pd-w-stats{grid-template-columns:repeat(auto-fit,minmax(88px,1fr));gap:6px;}
+}
+
+/* ── 手機版：預計月度總支出圖表（近6個月長條圖）改用左右滑動，避免長條被擠壓變形 ── */
+@media (max-width:640px){
+  [class*="h-36 md:h-44 pt-5 border-b border-gray-200/60 dark:border-zinc-800/60 px-2 sm:px-6 justify-around w-full max-w-full"]{
+    overflow-x:auto;
+    justify-content:flex-start!important;
+    -webkit-overflow-scrolling:touch;
+    scroll-snap-type:x proximity;
+    padding-bottom:8px;
+  }
+  [class*="h-36 md:h-44 pt-5 border-b border-gray-200/60 dark:border-zinc-800/60 px-2 sm:px-6 justify-around w-full max-w-full"] > [class*="flex-1 max-w-[130px] flex flex-col items-center gap-1.5 h-full justify-end rounded-xl"]{
+    flex:0 0 auto!important;
+    min-width:76px;
+    scroll-snap-align:start;
+  }
+}
+</style>
+
+<style>
+/* ══════════════════ 🎲 隨機配餐工具 ══════════════════ */
+#fp-nav-btn{width:100%;}
+#fp-page{
+  display:none;
+  box-sizing:border-box;
+}
+#fp-page.open{display:flex;}
+#fp-head{
+  flex-shrink:0;padding-top:2px;
+}
+#fp-head h3{
+  margin:0;font-size:22px;font-weight:900;color:#111827;letter-spacing:.02em;
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+}
+.dark #fp-head h3{color:#f9fafb;}
+#fp-head p{margin:4px 0 0;font-size:13px;font-weight:700;color:#9ca3af;}
+#fp-body{box-sizing:border-box;padding-top:18px;}
+#fp-layout{display:block;}
+@media (min-width:880px){
+  #fp-layout{display:grid;grid-template-columns:1fr 380px;gap:34px;align-items:start;}
+  #fp-col-right{position:sticky;top:20px;}
+}
+.fp-sec{margin-bottom:22px;}
+.fp-sec-title-row{display:flex;align-items:center;gap:10px;margin:0 0 12px;flex-wrap:wrap;}
+.fp-sec-title{font-size:15px;font-weight:800;color:#6d28d9;margin:0;display:flex;align-items:center;gap:6px;}
+.dark .fp-sec-title{color:#c4b5fd;}
+.fp-hint{font-size:13px;color:#8a8a95;margin:6px 0 0;line-height:1.6;}
+.dark .fp-hint{color:#9a9aa5;}
+.fp-chip-row{display:flex;flex-wrap:wrap;gap:8px;}
+.fp-chip{
+  border:1.5px solid #e9d5ff;background:#faf5ff;color:#7c3aed;font-size:14px;font-weight:700;
+  padding:8px 15px;border-radius:9999px;cursor:pointer;transition:all .15s;white-space:nowrap;
+}
+.dark .fp-chip{background:#201c29;border-color:#3f2d5c;color:#c4b5fd;}
+.fp-chip.active{background:#7c3aed;border-color:#7c3aed;color:#fff;}
+.fp-select-btn{
+  border:1.5px solid #e9d5ff;background:#fff;color:#7c3aed;font-size:13px;font-weight:700;
+  padding:6px 14px;border-radius:9999px;cursor:pointer;transition:all .15s;flex-shrink:0;
+}
+.dark .fp-select-btn{background:#201c29;border-color:#3f2d5c;color:#c4b5fd;}
+.fp-select-btn:hover{background:#f5f3ff;}
+.dark .fp-select-btn:hover{background:#241c33;}
+.fp-select-count{font-size:13px;color:#9a9aa5;font-weight:700;margin-left:auto;}
+.fp-item-list{display:flex;flex-direction:column;gap:8px;}
+.fp-item-row{
+  border:1.5px solid #ede9fe;border-radius:14px;padding:12px 14px;background:#fff;transition:border-color .15s;
+}
+.dark .fp-item-row{background:#201c29;border-color:#2d2438;}
+.fp-item-row.checked{border-color:#a78bfa;background:#faf5ff;}
+.dark .fp-item-row.checked{background:#241c33;}
+.fp-item-top{display:flex;align-items:center;gap:11px;cursor:pointer;}
+.fp-item-top input[type=checkbox]{width:20px;height:20px;accent-color:#7c3aed;flex-shrink:0;cursor:pointer;}
+.fp-item-name{font-size:15px;font-weight:700;color:#18181b;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.dark .fp-item-name{color:#f4f4f5;}
+.fp-item-meta{font-size:12px;color:#9a9aa5;flex-shrink:0;white-space:nowrap;}
+.fp-item-meta.warn{color:#dc2626;font-weight:700;}
+.fp-item-cfg{display:none;grid-template-columns:1fr 1fr;gap:10px 12px;margin-top:11px;padding-top:11px;border-top:1px dashed #e9d5ff;}
+.dark .fp-item-cfg{border-color:#3f2d5c;}
+.fp-item-row.checked .fp-item-cfg{display:grid;}
+.fp-item-cfg label{display:block;font-size:12px;font-weight:700;color:#8b5cf6;margin-bottom:4px;}
+.fp-item-cfg input{
+  width:100%;box-sizing:border-box;border:1.5px solid #e9d5ff;border-radius:9px;padding:8px 10px;
+  font-size:14.5px;font-weight:600;background:#fff;color:#18181b;outline:none;font-family:inherit;
+}
+.dark .fp-item-cfg input{background:#27272a;color:#f4f4f5;border-color:#3f3f46;}
+.fp-item-total-hint{
+  grid-column:1/3;margin-top:2px;font-size:12.5px;font-weight:700;line-height:1.6;
+  color:#7c3aed;background:#f5f3ff;border:1px solid #ede9fe;border-radius:9px;
+  padding:7px 11px;display:flex;align-items:center;gap:5px;
+}
+.dark .fp-item-total-hint{background:#211c2e;border-color:#3f2d5c;color:#c4b5fd;}
+.fp-item-total-hint.warn{color:#b45309;background:#fffbeb;border-color:#fde68a;}
+.dark .fp-item-total-hint.warn{color:#fbbf24;background:#2a2013;border-color:#4a3a12;}
+.fp-item-empty{font-size:14px;color:#9a9aa5;text-align:center;padding:22px 0;}
+.fp-settings-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;}
+.fp-field label{display:block;font-size:12px;font-weight:700;color:#8b5cf6;margin-bottom:5px;}
+.fp-field input{
+  width:100%;box-sizing:border-box;border:1.5px solid #e9d5ff;border-radius:10px;padding:9px 11px;
+  font-size:14.5px;font-weight:600;background:#fff;color:#18181b;outline:none;font-family:inherit;
+}
+.dark .fp-field input{background:#27272a;color:#f4f4f5;border-color:#3f3f46;}
+#fp-generate-btn{
+  width:100%;margin-top:4px;padding:14px;border:none;border-radius:14px;cursor:pointer;
+  background:linear-gradient(135deg,#a78bfa,#6d28d9);color:#fff;font-size:16px;font-weight:800;
+  display:flex;align-items:center;justify-content:center;gap:7px;
+  box-shadow:0 8px 20px rgba(124,58,237,.35);transition:transform .1s;
+}
+#fp-generate-btn:active{transform:scale(.98);}
+#fp-generate-btn:disabled{opacity:.5;cursor:not-allowed;}
+#fp-result-hint-row{margin-top:8px;}
+#fp-view-result-btn{
+  width:100%;padding:10px;border:1.5px solid #ddd6fe;border-radius:12px;background:#fff;
+  color:#7c3aed;font-size:14px;font-weight:700;cursor:pointer;
+}
+.dark #fp-view-result-btn{background:#201c29;border-color:#3f2d5c;}
+
+/* 產生結果改用彈窗顯示，避免天數一多時把整個頁面拉得很長 */
+#fp-result-overlay{
+  position:fixed;inset:0;z-index:9900;
+  background:rgba(24,16,38,.55);backdrop-filter:blur(4px);
+  display:none;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;
+}
+#fp-result-overlay.open{display:flex;}
+#fp-result-modal{
+  width:100%;max-width:560px;max-height:85vh;background:#fff;border-radius:24px;
+  box-shadow:0 24px 60px rgba(76,29,149,.35);display:flex;flex-direction:column;overflow:hidden;
+}
+.dark #fp-result-modal{background:#18181b;}
+#fp-result-head{
+  background:linear-gradient(135deg,#a78bfa,#7c3aed);color:#fff;padding:16px 20px;
+  display:flex;align-items:center;justify-content:space-between;flex-shrink:0;
+}
+#fp-result-head h4{margin:0;font-size:16px;font-weight:900;}
+#fp-result-close{
+  background:rgba(255,255,255,.18);border:none;color:#fff;width:30px;height:30px;
+  border-radius:9999px;font-size:15px;cursor:pointer;flex-shrink:0;display:flex;
+  align-items:center;justify-content:center;
+}
+#fp-result-scroll{overflow-y:auto;padding:16px 20px 20px;}
+#fp-result-list{display:flex;flex-direction:column;gap:7px;}
+.fp-r-row{
+  display:flex;align-items:center;gap:10px;padding:10px 13px;border-radius:12px;background:#faf5ff;
+  border:1px solid #ede9fe;font-size:14px;
+}
+.dark .fp-r-row{background:#201c29;border-color:#2d2438;}
+.fp-r-row.empty{background:#fef2f2;border-color:#fecaca;}
+.dark .fp-r-row.empty{background:#2a1a1a;border-color:#5c2b2b;}
+.fp-r-row.finished{background:#fef3c7;border-color:#fcd34d;}
+.dark .fp-r-row.finished{background:#3a2a0a;border-color:#5c4413;}
+.fp-r-date{font-weight:800;color:#6d28d9;flex-shrink:0;width:80px;}
+.dark .fp-r-date{color:#c4b5fd;}
+.fp-r-row.finished .fp-r-date{color:#b45309;}
+.dark .fp-r-row.finished .fp-r-date{color:#fbbf24;}
+.fp-r-item{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700;color:#18181b;}
+.dark .fp-r-item{color:#f4f4f5;}
+.fp-r-item.none{color:#dc2626;font-weight:600;}
+.fp-r-grams{flex-shrink:0;font-size:12.5px;color:#9a9aa5;font-weight:600;}
+.fp-r-finished-badge{
+  flex-shrink:0;font-size:11.5px;font-weight:800;color:#b45309;
+  background:#fde68a;border-radius:9999px;padding:3px 9px;white-space:nowrap;
+}
+.dark .fp-r-finished-badge{color:#fef3c7;background:#92660c;}
+#fp-regen-btn{
+  width:100%;margin-top:12px;padding:10px;border:1.5px solid #ddd6fe;border-radius:12px;background:#fff;
+  color:#7c3aed;font-size:14px;font-weight:700;cursor:pointer;flex-shrink:0;
+}
+.dark #fp-regen-btn{background:#201c29;border-color:#3f2d5c;}
+@media (max-width:480px){
+  .fp-settings-grid{grid-template-columns:1fr 1fr;}
+  .fp-settings-grid > .fp-field:nth-child(3){grid-column:1/3;}
+  #fp-head h3{font-size:19px;}
+  #fp-body{padding-top:16px;}
+}
+</style>
+<script>
+// ══════════════════════════════════════════════════════════════
+// 🎲 隨機配餐工具：從庫存物資中挑選品項，自動排出不重複、不過期的每日菜單
+// ══════════════════════════════════════════════════════════════
+(function(){
+  'use strict';
+  const LS_KEY='cat_feed_planner_v1';
+  // 目前只需要「罐頭」，先把分類篩選 UI 藏起來，但邏輯保留，
+  // 未來如果要開放其他分類（飼料/貓砂...），把這裡改成 true 就會顯示篩選列。
+  const SHOW_CATEGORY_FILTER=false;
+  const CATS=[
+    {value:'all',label:'🗂️ 全部'},
+    {value:'飼料',label:'🥩 飼料'},
+    {value:'罐頭',label:'🥫 罐頭'},
+    {value:'貓砂',label:'⏳ 貓砂'},
+    {value:'保健/醫療',label:'💊 保健/醫療'},
+    {value:'其他',label:'🎈 其他'}
+  ];
+
+  let state={
+    filterCat:'罐頭',
+    selectedIds:{},          // {id:true}
+    cfg:{},                  // {id:{grams,days}}
+    cooldown:3,
+    startDate:todayStr(),
+    horizonDays:14
+  };
+  let lastSchedule=null;
+
+  function todayStr(){
+    const d=new Date();
+    return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  }
+  function loadState(){
+    try{
+      const raw=localStorage.getItem(LS_KEY);
+      if(raw){ const s=JSON.parse(raw); state=Object.assign(state,s); }
+    }catch(e){}
+    if(!state.startDate || state.startDate<todayStr()) state.startDate=todayStr();
+    if(!SHOW_CATEGORY_FILTER) state.filterCat='罐頭'; // 篩選列隱藏時，固定只看罐頭
+  }
+  function saveState(){
+    try{ localStorage.setItem(LS_KEY, JSON.stringify(state)); }catch(e){}
+  }
+  function parseGrams(name){
+    const m=String(name||'').match(/(\d+(?:\.\d+)?)\s*g(?![a-zA-Z])/i);
+    return m ? parseFloat(m[1]) : '';
+  }
+  // 剩餘可用庫存：count 模式（有明確逐次打勾紀錄）要扣掉已經吃掉的次數(logs.length)，
+  // 避免把「原始購入總量」誤當成「目前剩餘量」拿去排菜單。
+  function remainingUnits(it){
+    const total=(it.total&&it.total>0)?it.total:1;
+    const used=(it.mode==='count'&&Array.isArray(it.logs))?it.logs.length:0;
+    return Math.max(0, total-used);
+  }
+  function loadInventory(){
+    let db=[];
+    try{ db=JSON.parse(localStorage.getItem('cat_v12_5')||'[]'); }catch(e){}
+    const today=todayStr();
+    return db.filter(it=> it.status!=='done' && (!it.expiry || it.expiry>=today));
+  }
+
+  const NAV_BTN_ACTIVE_CLASS='w-full px-4 py-3 text-left font-bold text-sm rounded-2xl flex items-center gap-2 transition-all cursor-pointer bg-primary text-white shadow-md shadow-primary/20 glow-primary';
+  const NAV_BTN_INACTIVE_CLASS='w-full px-4 py-3 text-left font-bold text-sm rounded-2xl flex items-center gap-2 transition-all cursor-pointer text-zinc-400 hover:text-zinc-150 hover:bg-zinc-800/40';
+
+  function ensurePage(){
+    if(document.getElementById('fp-page')) return;
+    const main=document.querySelector('main');
+    if(!main||!main.parentElement) return;
+    const page=document.createElement('div');
+    page.id='fp-page';
+    // 沿用 main 本身的排版 class，讓這個頁面跟其他頁籤佔的位置、留白完全一致
+    page.className=main.className+' flex-col';
+    page.innerHTML =
+      '<div id="fp-head">'+
+        '<div><h3>🎲 隨機配餐</h3><p>挑選要輪替的物資，自動排出不重複、不過期的每日菜單</p></div>'+
+      '</div>'+
+      '<div id="fp-body"></div>';
+    main.parentElement.insertBefore(page, main.nextSibling);
+  }
+
+  function setNavBtnActive(active){
+    const btn=document.getElementById('fp-nav-btn');
+    if(btn) btn.className = active ? NAV_BTN_ACTIVE_CLASS : NAV_BTN_INACTIVE_CLASS;
+  }
+
+  function openPanel(){
+    ensurePage();
+    const main=document.querySelector('main');
+    const page=document.getElementById('fp-page');
+    if(!page) return;
+    if(page.classList.contains('open')){ closePanel(); return; } // 再點一次＝切回原本頁籤
+    if(main) main.style.display='none';
+    loadState();
+    renderBody();
+    page.classList.add('open');
+    setNavBtnActive(true);
+  }
+  function closePanel(){
+    const page=document.getElementById('fp-page');
+    const main=document.querySelector('main');
+    if(page) page.classList.remove('open');
+    if(main) main.style.display='';
+    setNavBtnActive(false);
+    const resultOv=document.getElementById('fp-result-overlay');
+    if(resultOv) resultOv.classList.remove('open');
+  }
+  // 點擊其他任何一個真正的頁籤按鈕時，自動切回去（讓這個功能表現得像分頁，而不是彈出視窗）
+  function watchRealTabClicks(){
+    const nav=document.querySelector('aside nav');
+    if(!nav||nav._fpWatched) return;
+    nav._fpWatched=true;
+    nav.addEventListener('click', function(e){
+      const btn=e.target.closest('button');
+      if(btn && btn.id!=='fp-nav-btn'){
+        const page=document.getElementById('fp-page');
+        if(page && page.classList.contains('open')) closePanel();
+      }
+    });
+  }
+
+  function renderBody(){
+    const body=document.getElementById('fp-body');
+    if(!body) return;
+    const inv=loadInventory();
+    const catChips=CATS.map(c=>
+      '<button type="button" class="fp-chip'+(state.filterCat===c.value?' active':'')+'" data-cat="'+c.value+'">'+c.label+'</button>'
+    ).join('');
+    const filtered = (state.filterCat==='all' ? inv : inv.filter(it=>it.category===state.filterCat))
+      .slice()
+      .sort((a,b)=> (a.expiry||'9999-99-99').localeCompare(b.expiry||'9999-99-99')); // 快到期排上面
+
+    let itemsHtml;
+    if(filtered.length===0){
+      itemsHtml='<div class="fp-item-empty">這個分類目前沒有「使用中/庫存中」且尚未過期的物資喔</div>';
+    }else{
+      itemsHtml = filtered.map(it=>{
+        const checked = !!state.selectedIds[it.id];
+        const cfg = state.cfg[it.id] || {};
+        const gramsPerUnit = cfg.gramsPerUnit!==undefined ? cfg.gramsPerUnit : parseGrams(it.name);
+        const daysPerUnit = cfg.daysPerUnit!==undefined ? cfg.daysPerUnit : '';
+        const unitLabel = it.specUnit || '罐';
+        const units = remainingUnits(it);
+        const expiryWarn = it.expiry ? (it.expiry <= addDaysStr(todayStr(),14)) : false;
+        const usedNote = (it.mode==='count' && it.logs && it.logs.length>0) ? '（已吃 '+it.logs.length+unitLabel+'）' : '';
+        const metaTxt = '剩 '+units+unitLabel+usedNote + (it.expiry ? '　到期 '+it.expiry : '　無期限');
+        return (
+          '<div class="fp-item-row'+(checked?' checked':'')+'" data-id="'+it.id+'">'+
+            '<label class="fp-item-top">'+
+              '<input type="checkbox" data-role="fp-check" data-id="'+it.id+'" '+(checked?'checked':'')+' />'+
+              '<span class="fp-item-name">'+escapeHtml(it.name)+'</span>'+
+              '<span class="fp-item-meta'+(expiryWarn?' warn':'')+'">'+escapeHtml(metaTxt)+'</span>'+
+            '</label>'+
+            '<div class="fp-item-cfg">'+
+              '<div><label>每'+escapeHtml(unitLabel)+' 幾 g</label><input type="number" min="0" step="1" data-role="fp-grams" data-id="'+it.id+'" value="'+gramsPerUnit+'" /></div>'+
+              '<div><label>1'+escapeHtml(unitLabel)+' 連續吃幾天</label><input type="number" min="0" step="1" data-role="fp-days" data-id="'+it.id+'" value="'+daysPerUnit+'" /></div>'+
+              '<div class="fp-item-total-hint" data-id="'+it.id+'">'+totalHintText(units,unitLabel,daysPerUnit)+'</div>'+
+            '</div>'+
+          '</div>'
+        );
+      }).join('');
+    }
+
+    const selCount=Object.keys(state.selectedIds).length;
+    const allChecked = filtered.length>0 && filtered.every(it=>state.selectedIds[it.id]);
+
+    body.innerHTML =
+      '<div id="fp-layout">'+
+        '<div id="fp-col-left">'+
+          (SHOW_CATEGORY_FILTER ?
+          '<div class="fp-sec">'+
+            '<p class="fp-sec-title">📂 分類篩選</p>'+
+            '<div class="fp-chip-row">'+catChips+'</div>'+
+          '</div>' : '')+
+          '<div class="fp-sec">'+
+            '<div class="fp-sec-title-row">'+
+              '<p class="fp-sec-title">✅ 選擇要輪替的物資</p>'+
+              '<button type="button" class="fp-select-btn" id="fp-select-toggle">'+(allChecked?'取消全選':'全選')+'</button>'+
+              '<span class="fp-select-count" id="fp-select-count">已選 '+selCount+' 項</span>'+
+            '</div>'+
+            '<div class="fp-item-list">'+itemsHtml+'</div>'+
+            '<p class="fp-hint">已依到期日排序，快到期的排在最上面。勾選後可調整「每'+ '罐/包/入' +' 幾 g」與「1罐連續吃幾天」（g 數已嘗試從品名自動抓取；天數請自行填寫，工具會用目前剩餘庫存自動換算總天數，已經吃掉的部分會自動扣除）。</p>'+
+          '</div>'+
+        '</div>'+
+        '<div id="fp-col-right">'+
+          '<div class="fp-sec">'+
+            '<p class="fp-sec-title">⚙️ 排程設定</p>'+
+            '<div class="fp-settings-grid">'+
+              '<div class="fp-field"><label>最少間隔幾天</label><input type="number" min="0" step="1" id="fp-cooldown" value="'+state.cooldown+'" /></div>'+
+              '<div class="fp-field"><label>從哪天開始</label><input type="date" id="fp-startdate" value="'+state.startDate+'" /></div>'+
+              '<div class="fp-field"><label>要排幾天</label><input type="number" min="1" max="730" step="1" id="fp-horizon" value="'+state.horizonDays+'" /></div>'+
+            '</div>'+
+            '<p class="fp-hint">同一罐開封後會「連續吃完」才換下一罐（不會拆成不連續的幾天）。「最少間隔幾天」是指這罐吃完後，至少要隔幾天才會再輪到同一項物資（例如設 3，代表罐頭A吃完後至少要等 3 天才會再輪到）。</p>'+
+          '</div>'+
+          '<button type="button" id="fp-generate-btn">🎲 產生隨機菜單</button>'+
+          (lastSchedule ? '<div id="fp-result-hint-row"><button type="button" id="fp-view-result-btn">📋 查看上次產生的菜單</button></div>' : '')+
+        '</div>'+
+      '</div>';
+
+    // 事件綁定
+    body.querySelectorAll('.fp-chip').forEach(btn=>{
+      btn.addEventListener('click', function(){
+        state.filterCat=btn.getAttribute('data-cat');
+        saveState();
+        renderBody();
+      });
+    });
+    body.querySelectorAll('[data-role="fp-check"]').forEach(cb=>{
+      cb.addEventListener('change', function(){
+        const id=cb.getAttribute('data-id');
+        const row=cb.closest('.fp-item-row');
+        if(cb.checked){
+          state.selectedIds[id]=true;
+          if(!state.cfg[id]){
+            const it=inv.find(x=>String(x.id)===String(id));
+            state.cfg[id]={
+              gramsPerUnit: it?parseGrams(it.name):'',
+              daysPerUnit: ''
+            };
+            if(row){
+              const gInp=row.querySelector('[data-role="fp-grams"]');
+              const dInp=row.querySelector('[data-role="fp-days"]');
+              if(gInp) gInp.value=state.cfg[id].gramsPerUnit;
+              if(dInp) dInp.value=state.cfg[id].daysPerUnit;
+              updateTotalHint(row,id);
+            }
+          }
+        }else{
+          delete state.selectedIds[id];
+        }
+        if(row) row.classList.toggle('checked', cb.checked);
+        saveState();
+        updateSelectCount();
+      });
+    });
+    function updateTotalHint(row,id){
+      const it=inv.find(x=>String(x.id)===String(id));
+      if(!it) return;
+      const unitLabel=it.specUnit||'罐';
+      const units=remainingUnits(it);
+      const hintEl=row.querySelector('.fp-item-total-hint');
+      if(hintEl){
+        const d=parseFloat(dInp?dInp.value:'');
+        hintEl.textContent=totalHintText(units,unitLabel,dInp?dInp.value:'');
+        hintEl.classList.toggle('warn', isNaN(d)||d<=0);
+      }
+    }
+    function updateSelectCount(){
+      const el=document.getElementById('fp-select-count');
+      if(el) el.textContent='已選 '+Object.keys(state.selectedIds).length+' 項';
+    }
+    body.querySelectorAll('[data-role="fp-grams"]').forEach(inp=>{
+      inp.addEventListener('input', function(){
+        const id=inp.getAttribute('data-id');
+        state.cfg[id]=state.cfg[id]||{};
+        state.cfg[id].gramsPerUnit=inp.value===''?'':parseFloat(inp.value);
+        saveState();
+      });
+    });
+    body.querySelectorAll('[data-role="fp-days"]').forEach(inp=>{
+      inp.addEventListener('input', function(){
+        const id=inp.getAttribute('data-id');
+        state.cfg[id]=state.cfg[id]||{};
+        state.cfg[id].daysPerUnit=inp.value===''?'':parseFloat(inp.value);
+        saveState();
+        const row=inp.closest('.fp-item-row');
+        if(row) updateTotalHint(row,id);
+      });
+    });
+    const selToggleBtn=document.getElementById('fp-select-toggle');
+    if(selToggleBtn) selToggleBtn.addEventListener('click', function(){
+      if(allChecked){
+        filtered.forEach(it=>{ delete state.selectedIds[it.id]; });
+      }else{
+        filtered.forEach(it=>{
+          state.selectedIds[it.id]=true;
+          if(!state.cfg[it.id]){
+            state.cfg[it.id]={ gramsPerUnit: parseGrams(it.name), daysPerUnit:'' };
+          }
+        });
+      }
+      saveState();
+      renderBody();
+    });
+    const cdInp=document.getElementById('fp-cooldown');
+    if(cdInp) cdInp.addEventListener('input', function(){ state.cooldown=parseInt(cdInp.value||'0',10)||0; saveState(); });
+    const sdInp=document.getElementById('fp-startdate');
+    if(sdInp) sdInp.addEventListener('input', function(){ state.startDate=sdInp.value||todayStr(); saveState(); });
+    const hzInp=document.getElementById('fp-horizon');
+    if(hzInp) hzInp.addEventListener('input', function(){ state.horizonDays=Math.max(1,Math.min(730,parseInt(hzInp.value||'14',10)||14)); saveState(); });
+
+    const genBtn=document.getElementById('fp-generate-btn');
+    if(genBtn) genBtn.addEventListener('click', function(){ runGenerate(inv); });
+    const viewResultBtn=document.getElementById('fp-view-result-btn');
+    if(viewResultBtn) viewResultBtn.addEventListener('click', function(){ if(lastSchedule) renderResult(lastSchedule); });
+  }
+
+  function escapeHtml(s){
+    return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+  function totalHintText(units,unitLabel,daysPerUnit){
+    const d=parseFloat(daysPerUnit);
+    if(isNaN(d)||d<=0) return '目前庫存 '+units+unitLabel+'，請填「1'+unitLabel+'連續吃幾天」才能換算總天數';
+    const blockLen=Math.max(1,Math.round(d));
+    const total=units*blockLen;
+    const roundNote = (blockLen!==d) ? '（天數會取整數 '+blockLen+' 天計算）' : '';
+    return '= 目前庫存 '+units+unitLabel+'，每罐連續吃 '+blockLen+' 天'+roundNote+' = 總共約 '+total+' 天份';
+  }
+  function addDaysStr(dateStr,n){
+    const d=new Date(dateStr+'T00:00:00'); d.setDate(d.getDate()+n);
+    return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  }
+  function weekdayLabel(dateStr){
+    const wd=['日','一','二','三','四','五','六'][new Date(dateStr+'T00:00:00').getDay()];
+    return '週'+wd;
+  }
+
+  function runGenerate(inv){
+    const selected=Object.keys(state.selectedIds).map(id=>{
+      const it=inv.find(x=>String(x.id)===String(id));
+      if(!it) return null;
+      const cfg=state.cfg[id]||{};
+      const gramsPerUnit=parseFloat(cfg.gramsPerUnit);
+      const daysPerUnitRaw=parseFloat(cfg.daysPerUnit);
+      const units=remainingUnits(it);
+      const blockLen=(!isNaN(daysPerUnitRaw)&&daysPerUnitRaw>0) ? Math.max(1,Math.round(daysPerUnitRaw)) : 0;
+      return {id:String(id), name:it.name, grams:isNaN(gramsPerUnit)?0:gramsPerUnit, units, blockLen, expiry:it.expiry||''};
+    }).filter(Boolean);
+
+    const invalid=selected.filter(it=>!it.blockLen);
+    const outOfStock=selected.filter(it=>it.blockLen && it.units<=0);
+    if(outOfStock.length>0){
+      alert('「'+outOfStock.map(x=>x.name).join('、')+'」已經沒有剩餘庫存了，麻煩取消勾選或先補貨。');
+      return;
+    }
+    if(selected.length===0){
+      alert('請至少勾選一項物資，並填寫「1罐連續吃幾天」喔！');
+      return;
+    }
+    if(invalid.length>0){
+      alert('「'+invalid.map(x=>x.name).join('、')+'」還沒填寫「1罐連續吃幾天」，請補上再產生菜單。');
+      return;
+    }
+    const schedule=generateSchedule(selected, state.cooldown, state.startDate, state.horizonDays);
+    lastSchedule=schedule;
+    renderResult(schedule);
+  }
+
+  function weightedPick(items,weights){
+    const total=weights.reduce((a,b)=>a+b,0);
+    let r=Math.random()*total;
+    for(let i=0;i<items.length;i++){ r-=weights[i]; if(r<=0) return items[i]; }
+    return items[items.length-1];
+  }
+
+  // 排程邏輯：同一罐開封後會「連續吃完」整個 blockLen 天數才換下一罐，
+  // 不會被拆成不連續的幾天（避免開封後放太久壞掉）。
+  // remainingUnits：剩幾罐可用；lastEndDay：上一次吃這項物資「吃到的最後一天」（day index）。
+  function generateSchedule(selected,cooldown,startDateStr,horizonDays){
+    const stockLeft={}, lastEndDay={};
+    selected.forEach(it=>{ stockLeft[it.id]=it.units; lastEndDay[it.id]=-Infinity; });
+    const schedule=[];
+    let day=0;
+    let guard=0; // 安全閥，避免極端設定造成無窮迴圈
+    while(day<horizonDays && guard++<horizonDays*4){
+      const dateStr=addDaysStr(startDateStr,day);
+      const eligible=function(it,ignoreCooldown){
+        if(stockLeft[it.id]<=0) return false;
+        if(!ignoreCooldown && (day-lastEndDay[it.id])<=cooldown) return false;
+        const blockEndDate=addDaysStr(dateStr, Math.min(it.blockLen,horizonDays-day)-1);
+        if(it.expiry && blockEndDate>it.expiry) return false;
+        return true;
+      };
+      // 先找出「庫存還有、且這個時間點開始吃還來得及在過期前吃完」的全部候選（暫不管間隔限制）
+      const feasible=selected.filter(it=>eligible(it,true));
+      if(feasible.length===0){
+        schedule.push({date:dateStr,item:null});
+        day++;
+        continue;
+      }
+      // 「寬裕天數」= 距離到期日還剩幾天，扣掉「把剩餘庫存吃完還需要幾天」。
+      // 寬裕天數 <= 0 代表再不排它就會來不及在過期前吃完——這種「緊急品項」要強制優先排入，
+      // 即使還沒過「最少間隔幾天」也要排，避免因為間隔限制而錯過、最後過期浪費掉。
+      const scored=feasible.map(it=>{
+        const daysLeftToExpiry = it.expiry ? Math.round((new Date(it.expiry+'T00:00:00')-new Date(dateStr+'T00:00:00'))/86400000) : Infinity;
+        const neededDays = stockLeft[it.id]*it.blockLen;
+        return {it, slack: daysLeftToExpiry-neededDays};
+      });
+      const critical=scored.filter(s=>s.slack<=0);
+      let pickFrom, relaxed;
+      if(critical.length>0){
+        pickFrom=critical;
+        relaxed=critical.some(s=>(day-lastEndDay[s.it.id])<=cooldown);
+      }else{
+        const strictIds=new Set(selected.filter(it=>eligible(it,false)).map(it=>it.id));
+        const strictScored=scored.filter(s=>strictIds.has(s.it.id));
+        if(strictScored.length>0){ pickFrom=strictScored; relaxed=false; }
+        else{ pickFrom=scored; relaxed=true; }
+      }
+      const weights = pickFrom.map(s=>1/(Math.max(s.slack,0)+1));
+      const chosen = weightedPick(pickFrom, weights).it;
+      const blockLen=Math.min(chosen.blockLen, horizonDays-day);
+      stockLeft[chosen.id]--;
+      const finished = stockLeft[chosen.id]<=0; // 這罐吃完後，這個品項就沒庫存了
+      for(let k=0;k<blockLen;k++){
+        schedule.push({date:addDaysStr(startDateStr,day+k),item:chosen,relaxed:relaxed,finished:finished && k===blockLen-1});
+      }
+      lastEndDay[chosen.id]=day+blockLen-1;
+      day+=blockLen;
+    }
+    return schedule;
+  }
+
+  function ensureResultModal(){
+    if(document.getElementById('fp-result-overlay')) return;
+    const ov=document.createElement('div');
+    ov.id='fp-result-overlay';
+    ov.innerHTML =
+      '<div id="fp-result-modal" role="dialog" aria-modal="true">'+
+        '<div id="fp-result-head">'+
+          '<h4>📋 產生的菜單</h4>'+
+          '<button id="fp-result-close" type="button" aria-label="關閉">✕</button>'+
+        '</div>'+
+        '<div id="fp-result-scroll"></div>'+
+      '</div>';
+    document.body.appendChild(ov);
+    ov.addEventListener('click', function(e){ if(e.target===ov) closeResultModal(); });
+    document.getElementById('fp-result-close').addEventListener('click', closeResultModal);
+  }
+  function openResultModal(){
+    ensureResultModal();
+    document.getElementById('fp-result-overlay').classList.add('open');
+  }
+  function closeResultModal(){
+    const ov=document.getElementById('fp-result-overlay');
+    if(ov) ov.classList.remove('open');
+  }
+
+  function renderResult(schedule){
+    ensureResultModal();
+    const scroll=document.getElementById('fp-result-scroll');
+    if(!scroll) return;
+    const noneCount=schedule.filter(r=>!r.item).length;
+    const relaxedCount=schedule.filter(r=>r.relaxed).length;
+    let warnHtml='';
+    if(noneCount>0) warnHtml+='<p class="fp-hint">⚠️ 有 '+noneCount+' 天找不到符合條件（未過期、還有剩、間隔足夠）的物資，可能是選的物資不夠或天數設太少。</p>';
+    if(relaxedCount>0) warnHtml+='<p class="fp-hint">⚠️ 有 '+relaxedCount+' 天因快過期需優先排入，「最少間隔幾天」的限制被放寬了。</p>';
+
+    const rows=schedule.map(r=>{
+      if(!r.item){
+        return '<div class="fp-r-row empty"><span class="fp-r-date">'+r.date.slice(5)+' '+weekdayLabel(r.date)+'</span><span class="fp-r-item none">😿 無適合品項</span></div>';
+      }
+      const gramsTxt = r.item.grams ? r.item.grams+'g' : '';
+      const finishedBadge = r.finished ? '<span class="fp-r-finished-badge">✅ 這罐吃完</span>' : '';
+      return '<div class="fp-r-row'+(r.finished?' finished':'')+'"><span class="fp-r-date">'+r.date.slice(5)+' '+weekdayLabel(r.date)+'</span><span class="fp-r-item">'+escapeHtml(r.item.name)+'</span>'+finishedBadge+'<span class="fp-r-grams">'+gramsTxt+'</span></div>';
+    }).join('');
+
+    scroll.innerHTML =
+      warnHtml+
+      '<div id="fp-result-list">'+rows+'</div>'+
+      '<button type="button" id="fp-regen-btn">🔀 換一種排法</button>';
+    const regenBtn=document.getElementById('fp-regen-btn');
+    if(regenBtn) regenBtn.addEventListener('click', function(){
+      const inv=loadInventory();
+      runGenerate(inv);
+    });
+    openResultModal();
+  }
+
+  // ── 側邊欄插入「隨機配餐」按鈕：直接比照其他頁籤按鈕的原始 class，樣式才會完全一致 ──
+  function initNavBtn(){
+    const nav=document.querySelector('aside nav');
+    if(!nav||nav.querySelector('#fp-nav-btn')) return;
+    const btn=document.createElement('button');
+    btn.id='fp-nav-btn';
+    btn.type='button';
+    btn.className=NAV_BTN_INACTIVE_CLASS;
+    btn.textContent='🎲 隨機配餐';
+    btn.addEventListener('click', openPanel);
+    nav.appendChild(btn);
+    watchRealTabClicks();
+  }
+  initNavBtn(); // 先立即嘗試一次，避免等到第一次輪詢（500ms）才出現
+  let navTries=0;
+  const navTimer=setInterval(function(){
+    initNavBtn();
+    if(document.querySelector('#fp-nav-btn')||++navTries>60) clearInterval(navTimer);
+  },500);
+})();
+</script>
+<script>
+// ===== 手機版收合側邊欄：漢堡按鈕開關 =====
+(function(){
+  'use strict';
+  function initMobileNav(){
+    const aside=document.querySelector('aside');
+    if(!aside||aside._mnavInit) return;
+    const logoRow=aside.querySelector('div.flex.items-center.gap-2.mb-2.select-none');
+    const nav=aside.querySelector('nav');
+    if(!logoRow||!nav) return;
+    aside._mnavInit=true;
+
+    const btn=document.createElement('button');
+    btn.id='mnav-toggle-btn';
+    btn.type='button';
+    btn.setAttribute('aria-label','開啟選單');
+    btn.textContent='☰';
+    btn.style.cssText='margin-left:auto;background:rgba(255,255,255,.1);border:none;color:#fff;width:34px;height:34px;border-radius:10px;font-size:16px;cursor:pointer;align-items:center;justify-content:center;flex-shrink:0;display:none;';
+    logoRow.appendChild(btn);
+
+    btn.addEventListener('click',function(){
+      const open=aside.classList.toggle('mnav-open');
+      btn.textContent=open?'✕':'☰';
+      btn.setAttribute('aria-label',open?'關閉選單':'開啟選單');
+    });
+    // 點任何分類頁籤後自動收起選單（手機上點完就直接看內容）
+    nav.addEventListener('click',function(e){
+      if(e.target.closest('button')){
+        aside.classList.remove('mnav-open');
+        btn.textContent='☰';
+      }
+    });
+  }
+  let n=0;
+  const t=setInterval(function(){
+    initMobileNav();
+    const aside=document.querySelector('aside');
+    if((aside&&aside._mnavInit)||++n>60) clearInterval(t);
+  },500);
+})();
+</script>
+
+<script>
+// ===== 有任何彈窗開啟時，自動隱藏日曆/里程碑懸浮按鈕，避免蓋住彈窗內容或按鈕 =====
+(function(){
+  'use strict';
+  function hasOpenModal(){
+    // 這個 App 裡所有全螢幕彈窗（新增/編輯物資、寵物資料、月份明細、
+    // 照片放大、裁切頭貼、右鍵選單）都用 position:fixed + inset:0 的寫法；
+    // 「讀取本地存檔」的匯入預覽視窗與「貓咪詳情面板」則各自有專屬 id。
+    return !!(
+      document.querySelector('.fixed.inset-0') ||
+      document.getElementById('import-preview-overlay') ||
+      document.querySelector('#pd-overlay.open') ||
+      document.querySelector('#fp-result-overlay.open')
+    );
+  }
+  function syncFabVisibility(){
+    const zone=document.getElementById('cal-fab-zone');
+    if(!zone) return;
+    zone.style.display = hasOpenModal() ? 'none' : '';
+  }
+  const mo=new MutationObserver(syncFabVisibility);
+  mo.observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['class']});
+  syncFabVisibility();
+  setInterval(syncFabVisibility,800); // 保險：涵蓋非DOM變動觸發的顯示/隱藏（如 class 切換動畫）
+})();
+</script>
+
+<script>
+// ===== PWA: 註冊 Service Worker（讓網頁可安裝、離線也能開） =====
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function () {
+    navigator.serviceWorker.register('./sw.js').then(function (reg) {
+      // 每次開啟時檢查一下有沒有新版本
+      reg.update();
+      reg.addEventListener('updatefound', function () {
+        var newWorker = reg.installing;
+        if (!newWorker) return;
+        newWorker.addEventListener('statechange', function () {
+          if (newWorker.state === 'activated') {
+            try {
+              typeof window.showCatToast === 'function' &&
+                window.showCatToast('已更新到最新版本，重新整理即可套用', 'success');
+            } catch (e) {}
+          }
+        });
+      });
+    }).catch(function (err) {
+      console.warn('[貓管家] Service Worker 註冊失敗:', err);
+    });
+  });
+}
 </script>
 
 </body>
