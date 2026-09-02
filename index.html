@@ -2868,6 +2868,7 @@ document.getElementById('pd-edit-btn').onclick=()=>{
     horizonDays:14
   };
   let lastSchedule=null;
+  let lastTotalSupplyDays=0;
 
   function todayStr(){
     const d=new Date();
@@ -2921,6 +2922,8 @@ document.getElementById('pd-edit-btn').onclick=()=>{
     main.parentElement.insertBefore(page, main.nextSibling);
   }
 
+  let overriddenRealBtn=null; // 記住開啟時被我們暫時取消反白的「真正頁籤」按鈕，關閉時要還原
+
   function setNavBtnActive(active){
     const btn=document.getElementById('fp-nav-btn');
     if(btn) btn.className = active ? NAV_BTN_ACTIVE_CLASS : NAV_BTN_INACTIVE_CLASS;
@@ -2937,6 +2940,14 @@ document.getElementById('pd-edit-btn').onclick=()=>{
     renderBody();
     page.classList.add('open');
     setNavBtnActive(true);
+    // React 完全不知道我們切換了畫面，它記憶中「選中的頁籤」不會變，
+    // 所以要手動把目前顯示反白的那個真正頁籤按鈕改成未選中樣式，
+    // 避免畫面上同時有兩個頁籤看起來是選中的。
+    const nav=document.querySelector('aside nav');
+    overriddenRealBtn = nav
+      ? Array.from(nav.querySelectorAll('button')).find(b=>b.id!=='fp-nav-btn' && b.className.indexOf('bg-primary')!==-1)
+      : null;
+    if(overriddenRealBtn) overriddenRealBtn.className=NAV_BTN_INACTIVE_CLASS;
   }
   function closePanel(){
     const page=document.getElementById('fp-page');
@@ -2946,6 +2957,9 @@ document.getElementById('pd-edit-btn').onclick=()=>{
     setNavBtnActive(false);
     const resultOv=document.getElementById('fp-result-overlay');
     if(resultOv) resultOv.classList.remove('open');
+    // 還原剛才被暫時取消反白的真正頁籤（除非使用者是點擊「別的」真正頁籤離開，
+    // 那種情況 React 自己就會正確反白新點的那個，這裡還原舊的也不會有影響）
+    if(overriddenRealBtn){ overriddenRealBtn.className=NAV_BTN_ACTIVE_CLASS; overriddenRealBtn=null; }
   }
   // 點擊其他任何一個真正的頁籤按鈕時，自動切回去（讓這個功能表現得像分頁，而不是彈出視窗）
   function watchRealTabClicks(){
@@ -3134,7 +3148,7 @@ document.getElementById('pd-edit-btn').onclick=()=>{
     const genBtn=document.getElementById('fp-generate-btn');
     if(genBtn) genBtn.addEventListener('click', function(){ runGenerate(inv); });
     const viewResultBtn=document.getElementById('fp-view-result-btn');
-    if(viewResultBtn) viewResultBtn.addEventListener('click', function(){ if(lastSchedule) renderResult(lastSchedule); });
+    if(viewResultBtn) viewResultBtn.addEventListener('click', function(){ if(lastSchedule) renderResult(lastSchedule, lastTotalSupplyDays); });
   }
 
   function escapeHtml(s){
@@ -3184,8 +3198,10 @@ document.getElementById('pd-edit-btn').onclick=()=>{
       return;
     }
     const schedule=generateSchedule(selected, state.cooldown, state.startDate, state.horizonDays);
+    const totalSupplyDays=selected.reduce((s,it)=>s+it.units*it.blockLen,0);
     lastSchedule=schedule;
-    renderResult(schedule);
+    lastTotalSupplyDays=totalSupplyDays;
+    renderResult(schedule, totalSupplyDays);
   }
 
   function weightedPick(items,weights){
@@ -3221,26 +3237,27 @@ document.getElementById('pd-edit-btn').onclick=()=>{
         continue;
       }
       // 「寬裕天數」= 距離到期日還剩幾天，扣掉「把剩餘庫存吃完還需要幾天」。
-      // 寬裕天數 <= 0 代表再不排它就會來不及在過期前吃完——這種「緊急品項」要強制優先排入，
-      // 即使還沒過「最少間隔幾天」也要排，避免因為間隔限制而錯過、最後過期浪費掉。
+      // 寬裕天數 <= 0 代表再不排它就會來不及在過期前吃完。
       const scored=feasible.map(it=>{
         const daysLeftToExpiry = it.expiry ? Math.round((new Date(it.expiry+'T00:00:00')-new Date(dateStr+'T00:00:00'))/86400000) : Infinity;
         const neededDays = stockLeft[it.id]*it.blockLen;
         return {it, slack: daysLeftToExpiry-neededDays};
       });
-      const critical=scored.filter(s=>s.slack<=0);
+      // 一律優先從「沒在冷卻中」的品項裡挑最急迫的——即使某個品項很緊急，
+      // 只要它還在自己的最少間隔天數限制內，就讓別的（沒在冷卻中的）品項先補上這個空檔，
+      // 而不是為了它去違反間隔限制、把不那麼急的品項晾在一邊。
+      // 唯有「所有品項當天都剛好在冷卻中」這種真的沒得選的情況，才不得已放寬間隔限制。
+      const strictIds=new Set(selected.filter(it=>eligible(it,false)).map(it=>it.id));
+      const strictScored=scored.filter(s=>strictIds.has(s.it.id));
       let pickFrom, relaxed;
-      if(critical.length>0){
-        pickFrom=critical;
-        relaxed=critical.some(s=>(day-lastEndDay[s.it.id])<=cooldown);
-      }else{
-        const strictIds=new Set(selected.filter(it=>eligible(it,false)).map(it=>it.id));
-        const strictScored=scored.filter(s=>strictIds.has(s.it.id));
-        if(strictScored.length>0){ pickFrom=strictScored; relaxed=false; }
-        else{ pickFrom=scored; relaxed=true; }
-      }
-      const weights = pickFrom.map(s=>1/(Math.max(s.slack,0)+1));
-      const chosen = weightedPick(pickFrom, weights).it;
+      if(strictScored.length>0){ pickFrom=strictScored; relaxed=false; }
+      else{ pickFrom=scored; relaxed=true; }
+      // 在「這一輪實際可選」的品項裡，永遠選寬裕天數最小（最急迫）的那個，
+      // 直到它的庫存用完或真的排不進去為止，不會被沒那麼急的品項插隊。
+      // 只有在「急迫度完全相同」時（例如好幾項都沒設到期日），才用隨機決定順序。
+      const minSlack = Math.min.apply(null, pickFrom.map(s=>s.slack));
+      const topTier = pickFrom.filter(s=>s.slack===minSlack);
+      const chosen = (topTier.length===1) ? topTier[0].it : weightedPick(topTier, topTier.map(()=>1)).it;
       const blockLen=Math.min(chosen.blockLen, horizonDays-day);
       stockLeft[chosen.id]--;
       const finished = stockLeft[chosen.id]<=0; // 這罐吃完後，這個品項就沒庫存了
@@ -3278,15 +3295,22 @@ document.getElementById('pd-edit-btn').onclick=()=>{
     if(ov) ov.classList.remove('open');
   }
 
-  function renderResult(schedule){
+  function renderResult(schedule, totalSupplyDays){
     ensureResultModal();
     const scroll=document.getElementById('fp-result-scroll');
     if(!scroll) return;
+    const horizonDays=schedule.length;
     const noneCount=schedule.filter(r=>!r.item).length;
     const relaxedCount=schedule.filter(r=>r.relaxed).length;
     let warnHtml='';
-    if(noneCount>0) warnHtml+='<p class="fp-hint">⚠️ 有 '+noneCount+' 天找不到符合條件（未過期、還有剩、間隔足夠）的物資，可能是選的物資不夠或天數設太少。</p>';
-    if(relaxedCount>0) warnHtml+='<p class="fp-hint">⚠️ 有 '+relaxedCount+' 天因快過期需優先排入，「最少間隔幾天」的限制被放寬了。</p>';
+    if(noneCount>0){
+      if(totalSupplyDays && totalSupplyDays<horizonDays){
+        warnHtml+='<p class="fp-hint">ℹ️ 你選的物資合計約有 '+totalSupplyDays+' 天份，但設定要排 '+horizonDays+' 天，所以有 '+noneCount+' 天沒有物資可排——這是正常現象，不是排程出錯，只是量不夠而已。可以多選幾樣物資，或把「要排幾天」設短一點。</p>';
+      }else{
+        warnHtml+='<p class="fp-hint">⚠️ 有 '+noneCount+' 天找不到符合條件（未過期、還有剩、間隔足夠）的物資，可能是選的物資到期日太集中，導致某幾天剛好卡住。</p>';
+      }
+    }
+    if(relaxedCount>0) warnHtml+='<p class="fp-hint">ℹ️ 有 '+relaxedCount+' 天沒能符合「最少間隔幾天」——通常是因為當時可以輪替的物資種類不夠多（例如快到期的排完後某段時間只剩一種可選，自然就沒辦法跟別的品項交錯），這是正常現象，不是排程出錯。想避免的話可以多選幾種物資增加輪替空間，或把「最少間隔幾天」設短一點。</p>';
 
     const rows=schedule.map(r=>{
       if(!r.item){
@@ -3318,16 +3342,30 @@ document.getElementById('pd-edit-btn').onclick=()=>{
     btn.type='button';
     btn.className=NAV_BTN_INACTIVE_CLASS;
     btn.textContent='🎲 隨機配餐';
+    // 先關掉 transition 再插入，避免瀏覽器把「剛插入的新元素」誤判成一次樣式變化，
+    // 播出一段沒必要的淡入/位移動畫（其他真正頁籤按鈕是頁面一開始就存在，不會有這個問題）。
+    btn.style.transition='none';
     btn.addEventListener('click', openPanel);
     nav.appendChild(btn);
+    requestAnimationFrame(function(){
+      requestAnimationFrame(function(){ btn.style.transition=''; });
+    });
     watchRealTabClicks();
   }
-  initNavBtn(); // 先立即嘗試一次，避免等到第一次輪詢（500ms）才出現
+  initNavBtn(); // 先立即嘗試一次
+  // 這個 App 用 React.StrictMode + 開發版 build，瀏覽器載入當下 React 會把整個畫面
+  // 「先掛載一次、卸載、再重新掛載一次」（StrictMode 開發模式的既定行為，抓副作用漏洞用，
+  // 正式版不會這樣）。這代表我們插入的按鈕可能才剛出現就被那次卸載沖掉。
+  // 所以這裡「永久」保持監聽、不能偵測到按鈕出現就斷線，否則按鈕被沖掉後就沒人補回來了。
+  const mo=new MutationObserver(function(){ initNavBtn(); });
+  mo.observe(document.body,{childList:true,subtree:true});
+  // 額外加一個很短週期的輪詢，專門應付最開始那幾秒的掛載/卸載/重掛動盪期
+  // （之後就交給上面的 MutationObserver 長期守著就好，輪詢本身會在幾秒後自動停止）。
   let navTries=0;
   const navTimer=setInterval(function(){
     initNavBtn();
-    if(document.querySelector('#fp-nav-btn')||++navTries>60) clearInterval(navTimer);
-  },500);
+    if(++navTries>150) clearInterval(navTimer);
+  },20);
 })();
 </script>
 <script>
