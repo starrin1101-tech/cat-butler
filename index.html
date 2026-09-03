@@ -3237,7 +3237,23 @@ document.getElementById('pd-edit-btn').onclick=()=>{
     const totalSupplyDays=selected.reduce((s,it)=>s+it.units*it.blockLen,0);
     lastSchedule=schedule;
     lastTotalSupplyDays=totalSupplyDays;
+    ensureViewResultBtn();
     renderResult(schedule, totalSupplyDays);
+  }
+
+  // 產生成功後，若右側欄還沒有「查看上次產生的菜單」按鈕就動態補上，
+  // 不用等使用者關掉頁籤、重新打開才會出現（這是原本的一個漏洞）。
+  function ensureViewResultBtn(){
+    if(document.getElementById('fp-view-result-btn')) return;
+    const genBtn=document.getElementById('fp-generate-btn');
+    if(!genBtn || !genBtn.parentElement) return;
+    const row=document.createElement('div');
+    row.id='fp-result-hint-row';
+    row.innerHTML='<button type="button" id="fp-view-result-btn">📋 查看上次產生的菜單</button>';
+    genBtn.insertAdjacentElement('afterend', row);
+    document.getElementById('fp-view-result-btn').addEventListener('click', function(){
+      if(lastSchedule) renderResult(lastSchedule, lastTotalSupplyDays);
+    });
   }
 
   function weightedPick(items,weights){
@@ -3320,6 +3336,8 @@ document.getElementById('pd-edit-btn').onclick=()=>{
       '</div>';
     document.body.appendChild(ov);
     ov.addEventListener('click', function(e){
+      // 點擊背景遮罩會關閉視窗；現在「查看上次產生的菜單」按鈕已經修好，
+      // 產生後會立刻出現，不怕手滑點到外面關掉後找不回上次的結果。
       if(e.target===ov){ closeResultModal(); return; }
       const toggleBtn=e.target.closest('.fp-hint-toggle');
       if(toggleBtn) toggleBtn.closest('.fp-hint-collapse').classList.toggle('open');
@@ -3329,6 +3347,10 @@ document.getElementById('pd-edit-btn').onclick=()=>{
   function openResultModal(){
     ensureResultModal();
     document.getElementById('fp-result-overlay').classList.add('open');
+    // 每次開啟都從最上面開始看，不要記住上次滑到哪裡（尤其是換一種排法/重新產生時，
+    // 內容已經不一樣了，還停在舊的捲動位置會很反直覺）。
+    const scroll=document.getElementById('fp-result-scroll');
+    if(scroll) scroll.scrollTop=0;
   }
   function closeResultModal(){
     const ov=document.getElementById('fp-result-overlay');
