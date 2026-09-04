@@ -3433,7 +3433,11 @@ document.getElementById('pd-edit-btn').onclick=()=>{
   // 「先掛載一次、卸載、再重新掛載一次」（StrictMode 開發模式的既定行為，抓副作用漏洞用，
   // 正式版不會這樣）。這代表我們插入的按鈕可能才剛出現就被那次卸載沖掉。
   // 所以這裡「永久」保持監聽、不能偵測到按鈕出現就斷線，否則按鈕被沖掉後就沒人補回來了。
-  const mo=new MutationObserver(function(){ initNavBtn(); });
+  let navDebounce=null;
+  const mo=new MutationObserver(function(){
+    clearTimeout(navDebounce);
+    navDebounce=setTimeout(initNavBtn,40);
+  });
   mo.observe(document.body,{childList:true,subtree:true});
   // 額外加一個很短週期的輪詢，專門應付最開始那幾秒的掛載/卸載/重掛動盪期
   // （之後就交給上面的 MutationObserver 長期守著就好，輪詢本身會在幾秒後自動停止）。
@@ -3444,6 +3448,229 @@ document.getElementById('pd-edit-btn').onclick=()=>{
   },20);
 })();
 </script>
+<script>
+// ══════════════════════════════════════════════════════════════
+// 🔀 把「正在消耗／庫存囤貨／已結案／全部物資／消耗中+庫存」5個選項
+// 整合成標題旁邊「同一顆」下拉切換按鈕，不佔側邊欄空間。
+// 側邊欄原本的 4 個狀態按鈕改成用 CSS 藏起來（邏輯完全不動、還在，
+// 只是不顯示），下拉選單選到對應項目時用程式「點擊」那顆隱藏按鈕，
+// 借用 App 原生邏輯切換畫面，安全性較高。
+// ══════════════════════════════════════════════════════════════
+(function(){
+  'use strict';
+  // 4 個狀態頁籤在 nav 裡固定的順序索引：0=正在消耗 1=庫存囤貨 2=已結案 3=全部物資
+  const TAB_DEFS=[
+    {idx:0, origLabel:'⏳ 正在消耗', dispLabel:'📦 物資管理'}, // 側邊欄留著當入口，改個名字更貼切
+    {idx:1, origLabel:'📦 庫存囤貨', dispLabel:'📦 庫存囤貨'},
+    {idx:2, origLabel:'✅ 已結案', dispLabel:'✅ 已結案'},
+    {idx:3, origLabel:'📋 全部物資', dispLabel:'📋 全部物資'}
+  ];
+  const HIDDEN_IDX=[1,2,3]; // 側邊欄只隱藏這 3 個，index 0（正在消耗/物資管理）留著當入口
+  const OPTIONS=TAB_DEFS.map(function(d){ return {label:d.dispLabel, idx:d.idx}; })
+    .concat([{label:'🔀 消耗中+庫存', combo:true}]);
+  let filterOn=false; // 「消耗中+庫存」濾鏡是否啟用中
+
+  // 用「在 nav 裡的第幾個按鈕」取代用文字內容比對——因為我們要把第一個按鈕的
+  // 顯示文字從「正在消耗」改成「物資管理」，如果還用文字比對會找不到自己。
+  function getNavBtns(){
+    const nav=document.querySelector('aside nav');
+    if(!nav) return [];
+    return Array.from(nav.querySelectorAll('button')).filter(function(b){
+      return b.id!=='fp-nav-btn' && b.id!=='combo-select-chip';
+    });
+  }
+
+  // 已結案卡片的狀態徽章文字固定是「✅ 已結案」，用文字比對找出卡片本體並藏起來，
+  // 不動到卡片資料本身，只是視覺上濾掉。
+  function applyDoneFilter(){
+    document.querySelectorAll('span[class*="uppercase"][class*="tracking-wider"]').forEach(function(sp){
+      if(sp.textContent.trim()==='✅ 已結案'){
+        const card=sp.closest('[class*="rounded-3xl"]');
+        if(card) card.style.display='none';
+      }
+    });
+  }
+  function clearDoneFilter(){
+    document.querySelectorAll('[class*="rounded-3xl"]').forEach(function(card){
+      if(card.style.display==='none') card.style.display='';
+    });
+  }
+
+  function hideRealTabs(){
+    const btns=getNavBtns();
+    HIDDEN_IDX.forEach(function(i){ if(btns[i]) btns[i].style.display='none'; });
+    // 把「正在消耗」的顯示文字改成「物資管理」（純視覺覆蓋，不動底層資料/狀態邏輯）。
+    // React 每次重新渲染 nav 都會把文字改回原本的「正在消耗」，所以這裡要持續重貼。
+    const usingBtn=btns[0];
+    if(usingBtn && usingBtn.textContent.trim()!==TAB_DEFS[0].dispLabel){
+      usingBtn.textContent=TAB_DEFS[0].dispLabel;
+    }
+  }
+
+  function currentLabel(){
+    if(filterOn) return '🔀 消耗中+庫存';
+    const btns=getNavBtns();
+    const active=TAB_DEFS.find(function(d){
+      return btns[d.idx] && btns[d.idx].className.indexOf('bg-primary')!==-1;
+    });
+    return active ? active.dispLabel : TAB_DEFS[0].dispLabel;
+  }
+
+  function selectOption(opt){
+    closeDropdown();
+    const btns=getNavBtns();
+    if(opt.combo){
+      const allBtn=btns[3]; // 全部物資
+      if(!allBtn) return;
+      allBtn.click();
+      filterOn=true;
+      setTimeout(applyDoneFilter,30);
+      requestAnimationFrame(function(){ requestAnimationFrame(applyDoneFilter); });
+    }else{
+      filterOn=false;
+      clearDoneFilter();
+      const b=btns[opt.idx];
+      if(b) b.click();
+    }
+    updateChipLabel();
+  }
+
+  function updateChipLabel(){
+    const chip=document.getElementById('combo-select-chip');
+    if(chip){
+      const span=chip.querySelector('span');
+      if(span) span.textContent=currentLabel();
+    }
+  }
+
+  function closeDropdown(){
+    const dd=document.getElementById('combo-select-dropdown');
+    if(dd) dd.remove();
+    const chip=document.getElementById('combo-select-chip');
+    if(chip) chip.classList.remove('open');
+  }
+
+  function openDropdown(chip){
+    closeDropdown();
+    const dd=document.createElement('div');
+    dd.id='combo-select-dropdown';
+    const cur=currentLabel();
+    dd.innerHTML=OPTIONS.map(function(o){
+      return '<button type="button" class="combo-opt'+(o.label===cur?' cur':'')+'" data-label="'+o.label+'">'+o.label+'</button>';
+    }).join('');
+    document.body.appendChild(dd);
+    const r=chip.getBoundingClientRect();
+    dd.style.top=(r.bottom+window.scrollY+6)+'px';
+    dd.style.left=(r.left+window.scrollX)+'px';
+    dd.querySelectorAll('.combo-opt').forEach(function(btn){
+      btn.addEventListener('click', function(e){
+        e.stopPropagation();
+        const label=btn.getAttribute('data-label');
+        const opt=OPTIONS.find(function(o){ return o.label===label; });
+        if(opt) selectOption(opt);
+      });
+    });
+    setTimeout(function(){
+      document.addEventListener('click', onOutsideClick);
+    },0);
+  }
+  function onOutsideClick(e){
+    const dd=document.getElementById('combo-select-dropdown');
+    const chip=document.getElementById('combo-select-chip');
+    if(dd && !dd.contains(e.target) && chip && !chip.contains(e.target)){
+      closeDropdown();
+      document.removeEventListener('click', onOutsideClick);
+    }
+  }
+
+  // 畫面重新渲染時（切換排序、搜尋等）持續重新套用濾鏡、確保小按鈕還在、標籤文字正確。
+  // 加上 debounce：一次瞬間如果有一大串 DOM 異動（例如頁面剛載入、React 一口氣
+  // 建立整個畫面），只在異動「安定下來」之後執行一次，不要每一筆異動都重新掃描一次
+  // DOM，避免變成效能負擔（過去發現這種寫法在部分情況下會讓頁面載入變得很慢）。
+  let debounceTimer=null;
+  const mo=new MutationObserver(function(){
+    clearTimeout(debounceTimer);
+    debounceTimer=setTimeout(function(){
+      if(filterOn) applyDoneFilter();
+      hideRealTabs();
+      initChip();
+      updateChipLabel();
+    },60);
+  });
+  mo.observe(document.body,{childList:true,subtree:true});
+
+  // 小按鈕插進標題文字（<h2>）裡面，跟著「物資管理．XX」文字同一行顯示。
+  // 「寵物資訊」「歷史比價牆」這兩個頁籤不需要這顆按鈕——但 React 切換頁籤時
+  // 常常是「重複利用同一個 <h2> 元素、只換裡面的文字」，不會整個重新建立，
+  // 所以我們插入的按鈕不會自動消失，必須主動偵測並移除，不能只是「不新增」。
+  function initChip(){
+    const h2=document.querySelector('main h2');
+    const existing=document.getElementById('combo-select-chip');
+    if(!h2){
+      if(existing) existing.remove();
+      return;
+    }
+    const t=h2.textContent;
+    const shouldHide = t.indexOf('寵物資訊')!==-1 || t.indexOf('歷史比價牆')!==-1;
+    if(shouldHide){
+      if(existing) existing.remove();
+      return;
+    }
+    if(existing) return; // 已經存在且該顯示，不用重建
+    const chip=document.createElement('button');
+    chip.id='combo-select-chip';
+    chip.type='button';
+    chip.style.transition='none';
+    chip.innerHTML='<span>'+currentLabel()+'</span><b>▾</b>';
+    chip.addEventListener('click', function(e){
+      e.stopPropagation();
+      const dd=document.getElementById('combo-select-dropdown');
+      if(dd){ closeDropdown(); }else{ openDropdown(chip); chip.classList.add('open'); }
+    });
+    h2.appendChild(chip);
+    requestAnimationFrame(function(){
+      requestAnimationFrame(function(){ chip.style.transition=''; });
+    });
+  }
+  hideRealTabs();
+  initChip();
+  let tries=0;
+  const timer=setInterval(function(){
+    hideRealTabs();
+    initChip();
+    if(++tries>150) clearInterval(timer);
+  },20);
+})();
+</script>
+<style>
+#combo-select-chip{
+  font-size:13px;font-weight:800;padding:8px 12px;border-radius:12px;cursor:pointer;
+  border:1px solid #f3f4f6;background:#f9fafb;color:#18181b;margin-left:14px;
+  display:inline-flex;align-items:center;gap:8px;transition:all .2s;vertical-align:middle;
+}
+.dark #combo-select-chip{background:#27272a;border-color:#27272a;color:#f4f4f5;}
+#combo-select-chip:hover{background:#f3f4f6;}
+.dark #combo-select-chip:hover{background:#3f3f46;}
+#combo-select-chip b{font-size:10px;font-weight:900;color:#9ca3af;display:inline-block;transition:transform .3s;}
+.dark #combo-select-chip b{color:#71717a;}
+#combo-select-chip.open b{transform:rotate(180deg);}
+#combo-select-dropdown{
+  position:absolute;z-index:9700;min-width:170px;max-height:260px;overflow-y:auto;
+  background:#fff;border:1px solid rgba(229,231,235,.6);border-radius:16px;
+  box-shadow:0 10px 30px rgba(0,0,0,.08);padding:4px;
+  display:flex;flex-direction:column;gap:1px;
+}
+.dark #combo-select-dropdown{background:#18181b;border-color:#27272a;box-shadow:0 10px 30px rgba(0,0,0,.4);}
+.combo-opt{
+  text-align:left;padding:9px 11px;border-radius:11px;border:none;background:transparent;
+  font-size:13px;font-weight:700;color:#374151;cursor:pointer;transition:all .15s;
+}
+.dark .combo-opt{color:#d1d5db;}
+.combo-opt:hover{background:#f9fafb;}
+.dark .combo-opt:hover{background:rgba(63,63,70,.6);}
+.combo-opt.cur{background:#faf5ff;color:#9333ea;}
+.dark .combo-opt.cur{background:rgba(88,28,135,.4);color:#d8b4fe;}
+</style>
 <script>
 // ===== 手機版收合側邊欄：漢堡按鈕開關 =====
 (function(){
