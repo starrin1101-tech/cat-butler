@@ -3450,7 +3450,7 @@ document.getElementById('pd-edit-btn').onclick=()=>{
 </script>
 <script>
 // ══════════════════════════════════════════════════════════════
-// 🔀 把「正在消耗／庫存囤貨／已結案／全部物資／消耗中+庫存」5個選項
+// 🔀 把「正在消耗／庫存囤貨／未結案物資／已結案／全部物資」5個選項
 // 整合成標題旁邊「同一顆」下拉切換按鈕，不佔側邊欄空間。
 // 側邊欄原本的 4 個狀態按鈕改成用 CSS 藏起來（邏輯完全不動、還在，
 // 只是不顯示），下拉選單選到對應項目時用程式「點擊」那顆隱藏按鈕，
@@ -3460,15 +3460,20 @@ document.getElementById('pd-edit-btn').onclick=()=>{
   'use strict';
   // 4 個狀態頁籤在 nav 裡固定的順序索引：0=正在消耗 1=庫存囤貨 2=已結案 3=全部物資
   const TAB_DEFS=[
-    {idx:0, origLabel:'⏳ 正在消耗', dispLabel:'📦 物資管理'}, // 側邊欄留著當入口，改個名字更貼切
-    {idx:1, origLabel:'📦 庫存囤貨', dispLabel:'📦 庫存囤貨'},
-    {idx:2, origLabel:'✅ 已結案', dispLabel:'✅ 已結案'},
-    {idx:3, origLabel:'📋 全部物資', dispLabel:'📋 全部物資'}
+    {idx:0, sidebarLabel:'📦 物資管理', menuLabel:'⏳ 正在消耗'}, // 側邊欄當入口顯示「物資管理」，下拉選單裡跟其他狀態並列時顯示「正在消耗」比較對齊語意
+    {idx:1, sidebarLabel:'📦 庫存囤貨', menuLabel:'📦 庫存囤貨'},
+    {idx:2, sidebarLabel:'✅ 已結案', menuLabel:'✅ 已結案'},
+    {idx:3, sidebarLabel:'📋 全部物資', menuLabel:'📋 全部物資'}
   ];
   const HIDDEN_IDX=[1,2,3]; // 側邊欄只隱藏這 3 個，index 0（正在消耗/物資管理）留著當入口
-  const OPTIONS=TAB_DEFS.map(function(d){ return {label:d.dispLabel, idx:d.idx}; })
-    .concat([{label:'🔀 消耗中+庫存', combo:true}]);
-  let filterOn=false; // 「消耗中+庫存」濾鏡是否啟用中
+  const OPTIONS=[
+    {label:TAB_DEFS[0].menuLabel, idx:0}, // 正在消耗
+    {label:TAB_DEFS[1].menuLabel, idx:1}, // 庫存囤貨
+    {label:'🔀 未結案物資', combo:true},   // 消耗中+庫存（已結案的相反詞，語意更精準）
+    {label:TAB_DEFS[2].menuLabel, idx:2}, // 已結案
+    {label:TAB_DEFS[3].menuLabel, idx:3}  // 全部物資
+  ];
+  let filterOn=false; // 「未結案物資」濾鏡是否啟用中
 
   // 用「在 nav 裡的第幾個按鈕」取代用文字內容比對——因為我們要把第一個按鈕的
   // 顯示文字從「正在消耗」改成「物資管理」，如果還用文字比對會找不到自己。
@@ -3502,18 +3507,18 @@ document.getElementById('pd-edit-btn').onclick=()=>{
     // 把「正在消耗」的顯示文字改成「物資管理」（純視覺覆蓋，不動底層資料/狀態邏輯）。
     // React 每次重新渲染 nav 都會把文字改回原本的「正在消耗」，所以這裡要持續重貼。
     const usingBtn=btns[0];
-    if(usingBtn && usingBtn.textContent.trim()!==TAB_DEFS[0].dispLabel){
-      usingBtn.textContent=TAB_DEFS[0].dispLabel;
+    if(usingBtn && usingBtn.textContent.trim()!==TAB_DEFS[0].sidebarLabel){
+      usingBtn.textContent=TAB_DEFS[0].sidebarLabel;
     }
   }
 
   function currentLabel(){
-    if(filterOn) return '🔀 消耗中+庫存';
+    if(filterOn) return '🔀 未結案物資';
     const btns=getNavBtns();
     const active=TAB_DEFS.find(function(d){
       return btns[d.idx] && btns[d.idx].className.indexOf('bg-primary')!==-1;
     });
-    return active ? active.dispLabel : TAB_DEFS[0].dispLabel;
+    return active ? active.menuLabel : TAB_DEFS[0].menuLabel;
   }
 
   function selectOption(opt){
@@ -3645,11 +3650,11 @@ document.getElementById('pd-edit-btn').onclick=()=>{
 <style>
 #combo-select-chip{
   font-size:13px;font-weight:800;padding:8px 12px;border-radius:12px;cursor:pointer;
-  border:1px solid #f3f4f6;background:#f9fafb;color:#18181b;margin-left:14px;
+  border:none;background:#f4f4f5;color:#18181b;margin-left:14px;
   display:inline-flex;align-items:center;gap:8px;transition:all .2s;vertical-align:middle;
 }
-.dark #combo-select-chip{background:#27272a;border-color:#27272a;color:#f4f4f5;}
-#combo-select-chip:hover{background:#f3f4f6;}
+.dark #combo-select-chip{background:#27272a;color:#f4f4f5;}
+#combo-select-chip:hover{background:#e4e4e7;}
 .dark #combo-select-chip:hover{background:#3f3f46;}
 #combo-select-chip b{font-size:10px;font-weight:900;color:#9ca3af;display:inline-block;transition:transform .3s;}
 .dark #combo-select-chip b{color:#71717a;}
