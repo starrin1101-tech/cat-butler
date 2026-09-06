@@ -3460,18 +3460,18 @@ document.getElementById('pd-edit-btn').onclick=()=>{
   'use strict';
   // 4 個狀態頁籤在 nav 裡固定的順序索引：0=正在消耗 1=庫存囤貨 2=已結案 3=全部物資
   const TAB_DEFS=[
-    {idx:0, sidebarLabel:'📦 物資管理', menuLabel:'⏳ 正在消耗'}, // 側邊欄當入口顯示「物資管理」，下拉選單裡跟其他狀態並列時顯示「正在消耗」比較對齊語意
-    {idx:1, sidebarLabel:'📦 庫存囤貨', menuLabel:'📦 庫存囤貨'},
-    {idx:2, sidebarLabel:'✅ 已結案', menuLabel:'✅ 已結案'},
-    {idx:3, sidebarLabel:'📋 全部物資', menuLabel:'📋 全部物資'}
+    {idx:0, sidebarLabel:'📦 物資管理', menuLabel:'正在消耗', dot:'#f59e0b'}, // 側邊欄當入口顯示「物資管理」，下拉選單裡跟其他狀態並列時顯示「正在消耗」比較對齊語意
+    {idx:1, sidebarLabel:'📦 庫存囤貨', menuLabel:'庫存囤貨', dot:'#3b82f6'},
+    {idx:2, sidebarLabel:'✅ 已結案', menuLabel:'已結案', dot:'#22c55e'},
+    {idx:3, sidebarLabel:'📋 全部物資', menuLabel:'全部物資', dot:'#9ca3af'}
   ];
   const HIDDEN_IDX=[1,2,3]; // 側邊欄只隱藏這 3 個，index 0（正在消耗/物資管理）留著當入口
   const OPTIONS=[
-    {label:TAB_DEFS[0].menuLabel, idx:0}, // 正在消耗
-    {label:TAB_DEFS[1].menuLabel, idx:1}, // 庫存囤貨
-    {label:'🔀 未結案物資', combo:true},   // 消耗中+庫存（已結案的相反詞，語意更精準）
-    {label:TAB_DEFS[2].menuLabel, idx:2}, // 已結案
-    {label:TAB_DEFS[3].menuLabel, idx:3}  // 全部物資
+    {label:TAB_DEFS[0].menuLabel, idx:0, dot:TAB_DEFS[0].dot}, // 正在消耗
+    {label:TAB_DEFS[1].menuLabel, idx:1, dot:TAB_DEFS[1].dot}, // 庫存囤貨
+    {label:'未結案物資', combo:true, dot:'#a855f7'},           // 消耗中+庫存（已結案的相反詞，語意更精準）
+    {label:TAB_DEFS[2].menuLabel, idx:2, dot:TAB_DEFS[2].dot}, // 已結案
+    {label:TAB_DEFS[3].menuLabel, idx:3, dot:TAB_DEFS[3].dot}  // 全部物資
   ];
   let filterOn=false; // 「未結案物資」濾鏡是否啟用中
 
@@ -3501,6 +3501,9 @@ document.getElementById('pd-edit-btn').onclick=()=>{
     });
   }
 
+  const ACTIVE_CLASS='w-full px-4 py-3 text-left font-bold text-sm rounded-2xl flex items-center gap-2 transition-all cursor-pointer bg-primary text-white shadow-md shadow-primary/20 glow-primary';
+  const INACTIVE_CLASS='w-full px-4 py-3 text-left font-bold text-sm rounded-2xl flex items-center gap-2 transition-all cursor-pointer text-zinc-400 hover:text-zinc-150 hover:bg-zinc-800/40';
+
   function hideRealTabs(){
     const btns=getNavBtns();
     HIDDEN_IDX.forEach(function(i){ if(btns[i]) btns[i].style.display='none'; });
@@ -3510,15 +3513,30 @@ document.getElementById('pd-edit-btn').onclick=()=>{
     if(usingBtn && usingBtn.textContent.trim()!==TAB_DEFS[0].sidebarLabel){
       usingBtn.textContent=TAB_DEFS[0].sidebarLabel;
     }
+    // 選庫存囤貨/已結案/全部物資時，React 只會把「隱藏起來的那顆」標記成反白，
+    // 側邊欄看得到的「物資管理」按鈕本身反而變不反白，看起來像沒選中任何頁籤。
+    // 這裡強制補上：只要目前「真的還在」這 4 個物資檢視畫面裡，側邊欄那顆才要維持反白；
+    // 如果已經切去寵物資訊/歷史比價牆/隨機配餐（React 的 d 狀態可能沒變，殘留舊的反白），
+    // 就不該再強制它反白。
+    if(usingBtn){
+      const main=document.querySelector('main');
+      const onMaterialView = main && main.style.display!=='none' &&
+        main.querySelector('h2') &&
+        main.querySelector('h2').textContent.indexOf('寵物資訊')===-1 &&
+        main.querySelector('h2').textContent.indexOf('歷史比價牆')===-1;
+      const anyActive = onMaterialView && btns.slice(0,4).some(function(b){ return b && b.className.indexOf('bg-primary')!==-1; });
+      usingBtn.className = anyActive ? ACTIVE_CLASS : INACTIVE_CLASS;
+    }
   }
 
-  function currentLabel(){
-    if(filterOn) return '🔀 未結案物資';
+  function currentOption(){
+    if(filterOn) return OPTIONS.find(function(o){ return o.combo; });
     const btns=getNavBtns();
     const active=TAB_DEFS.find(function(d){
       return btns[d.idx] && btns[d.idx].className.indexOf('bg-primary')!==-1;
     });
-    return active ? active.menuLabel : TAB_DEFS[0].menuLabel;
+    const idx=active?active.idx:0;
+    return OPTIONS.find(function(o){ return o.idx===idx; }) || OPTIONS[0];
   }
 
   function selectOption(opt){
@@ -3543,8 +3561,11 @@ document.getElementById('pd-edit-btn').onclick=()=>{
   function updateChipLabel(){
     const chip=document.getElementById('combo-select-chip');
     if(chip){
-      const span=chip.querySelector('span');
-      if(span) span.textContent=currentLabel();
+      const cur=currentOption();
+      const dot=chip.querySelector('.combo-dot');
+      const span=chip.querySelector('span.combo-text');
+      if(dot) dot.style.background=cur.dot;
+      if(span) span.textContent=cur.label;
     }
   }
 
@@ -3559,9 +3580,11 @@ document.getElementById('pd-edit-btn').onclick=()=>{
     closeDropdown();
     const dd=document.createElement('div');
     dd.id='combo-select-dropdown';
-    const cur=currentLabel();
+    const cur=currentOption();
     dd.innerHTML=OPTIONS.map(function(o){
-      return '<button type="button" class="combo-opt'+(o.label===cur?' cur':'')+'" data-label="'+o.label+'">'+o.label+'</button>';
+      return '<button type="button" class="combo-opt'+(o.label===cur.label?' cur':'')+'" data-label="'+o.label+'">'+
+        '<span class="combo-dot" style="background:'+o.dot+'"></span>'+o.label+
+        '</button>';
     }).join('');
     document.body.appendChild(dd);
     const r=chip.getBoundingClientRect();
@@ -3626,7 +3649,8 @@ document.getElementById('pd-edit-btn').onclick=()=>{
     chip.id='combo-select-chip';
     chip.type='button';
     chip.style.transition='none';
-    chip.innerHTML='<span>'+currentLabel()+'</span><b>▾</b>';
+    const cur=currentOption();
+    chip.innerHTML='<span class="combo-dot" style="background:'+cur.dot+'"></span><span class="combo-text">'+cur.label+'</span><b>▾</b>';
     chip.addEventListener('click', function(e){
       e.stopPropagation();
       const dd=document.getElementById('combo-select-dropdown');
@@ -3649,16 +3673,17 @@ document.getElementById('pd-edit-btn').onclick=()=>{
 </script>
 <style>
 #combo-select-chip{
-  font-size:13px;font-weight:800;padding:8px 12px;border-radius:12px;cursor:pointer;
-  border:none;background:#f4f4f5;color:#18181b;margin-left:14px;
-  display:inline-flex;align-items:center;gap:8px;transition:all .2s;vertical-align:middle;
+  font-size:14px;font-weight:500;padding:6px 4px;border-radius:8px;cursor:pointer;
+  border:none;background:transparent;color:#18181b;margin-left:14px;
+  display:inline-flex;align-items:center;gap:9px;transition:all .15s;vertical-align:middle;
 }
-.dark #combo-select-chip{background:#27272a;color:#f4f4f5;}
-#combo-select-chip:hover{background:#e4e4e7;}
-.dark #combo-select-chip:hover{background:#3f3f46;}
-#combo-select-chip b{font-size:10px;font-weight:900;color:#9ca3af;display:inline-block;transition:transform .3s;}
+.dark #combo-select-chip{color:#f4f4f5;}
+#combo-select-chip:hover{background:#f4f4f5;}
+.dark #combo-select-chip:hover{background:#27272a;}
+#combo-select-chip b{font-size:17px;font-weight:900;color:#9ca3af;display:inline-block;transition:transform .3s;}
 .dark #combo-select-chip b{color:#71717a;}
 #combo-select-chip.open b{transform:rotate(180deg);}
+.combo-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;display:inline-block;}
 #combo-select-dropdown{
   position:absolute;z-index:9700;min-width:170px;max-height:260px;overflow-y:auto;
   background:#fff;border:1px solid rgba(229,231,235,.6);border-radius:16px;
@@ -3668,13 +3693,14 @@ document.getElementById('pd-edit-btn').onclick=()=>{
 .dark #combo-select-dropdown{background:#18181b;border-color:#27272a;box-shadow:0 10px 30px rgba(0,0,0,.4);}
 .combo-opt{
   text-align:left;padding:9px 11px;border-radius:11px;border:none;background:transparent;
-  font-size:13px;font-weight:700;color:#374151;cursor:pointer;transition:all .15s;
+  font-size:13px;font-weight:500;color:#374151;cursor:pointer;transition:all .15s;
+  display:flex;align-items:center;gap:9px;
 }
 .dark .combo-opt{color:#d1d5db;}
 .combo-opt:hover{background:#f9fafb;}
 .dark .combo-opt:hover{background:rgba(63,63,70,.6);}
-.combo-opt.cur{background:#faf5ff;color:#9333ea;}
-.dark .combo-opt.cur{background:rgba(88,28,135,.4);color:#d8b4fe;}
+.combo-opt.cur{background:#f4f4f5;color:#18181b;font-weight:700;}
+.dark .combo-opt.cur{background:#27272a;color:#f4f4f5;}
 </style>
 <script>
 // ===== 手機版收合側邊欄：漢堡按鈕開關 =====
