@@ -3661,12 +3661,30 @@ document.getElementById('pd-edit-btn').onclick=()=>{
       requestAnimationFrame(function(){ chip.style.transition=''; });
     });
   }
+  // 點擊任何頁籤的當下就立刻決定要不要把 chip 藏起來，不要等 debounce（60ms）
+  // 才反應——不然畫面切換的瞬間會看到 chip 閃一下才消失。
+  function watchNavForImmediateHide(){
+    const nav=document.querySelector('aside nav');
+    if(!nav||nav._comboImmediateWatched) return;
+    nav._comboImmediateWatched=true;
+    nav.addEventListener('click', function(e){
+      const btn=e.target.closest('button');
+      if(!btn) return;
+      if(btn.id==='fp-nav-btn' || btn.textContent.indexOf('寵物資訊')!==-1 || btn.textContent.indexOf('歷史比價牆')!==-1){
+        const existing=document.getElementById('combo-select-chip');
+        if(existing) existing.remove();
+        closeDropdown();
+      }
+    });
+  }
   hideRealTabs();
   initChip();
+  watchNavForImmediateHide();
   let tries=0;
   const timer=setInterval(function(){
     hideRealTabs();
     initChip();
+    watchNavForImmediateHide();
     if(++tries>150) clearInterval(timer);
   },20);
 })();
