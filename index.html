@@ -3098,12 +3098,38 @@ document.getElementById('pd-edit-btn').onclick=()=>{
     const m=String(name||'').match(/(\d+(?:\.\d+)?)\s*g(?![a-zA-Z])/i);
     return m ? parseFloat(m[1]) : '';
   }
-  // 剩餘可用庫存：count 模式（有明確逐次打勾紀錄）要扣掉已經吃掉的次數(logs.length)，
-  // 避免把「原始購入總量」誤當成「目前剩餘量」拿去排菜單。
+  // 剩餘可用庫存。
+  // 注意：it.total 這個欄位「只有」在消耗模式是 mode==='count'（扣次打卡）時才有意義，
+  // 而且新增物資的表單只要狀態是「庫存」就會完全隱藏 total 這個輸入框——但表單內部
+  // 還是會帶著它預設值 10 一起存檔！也就是說，絕大多數用「庫存/每日分攤」方式登記的
+  // 物資，it.total 其實是一個從沒被使用者填過、完全無意義的殘留數字（例如明明只買了
+  // 1 罐，it.total 卻還是預設的 10），如果拿它當「剩餘罐數」用，就會算出離譜的數字。
+  // 這裡改成跟「罐頭類庫存總覽」小工具（見 catCannedStockWidget）同一套邏輯：真正
+  // 代表「這批貨有幾罐/包」的欄位是使用者確實會填的 specVal（包裝規格），依身狀態＋
+  // 消耗模式估算剩餘量：
+  //   - 已結案：0
+  //   - 庫存中（尚未拆封）：specVal 全額都算庫存
+  //   - 消耗中 + 扣次打卡：specVal（或缺值時退回 total）扣掉已打卡次數
+  //   - 消耗中 + 每日分攤：依「已經過天數 / 預估可用天數」的比例，從 specVal 估算還剩幾罐
   function remainingUnits(it){
-    const total=(it.total&&it.total>0)?it.total:1;
-    const used=(it.mode==='count'&&Array.isArray(it.logs))?it.logs.length:0;
-    return Math.max(0, total-used);
+    const specVal=Number(it.specVal)||0;
+    if(it.status==='done') return 0;
+    if(it.status==='warehouse') return specVal>0?specVal:1;
+    if(it.mode==='count'){
+      const total=specVal>0?specVal:((it.total&&it.total>0)?it.total:1);
+      const used=Array.isArray(it.logs)?it.logs.length:0;
+      return Math.max(0, total-used);
+    }
+    // day 模式（消耗中）：依已過天數估算剩餘比例換算成剩餘罐/包數
+    const est=Number(it.est)||30;
+    if(specVal>0 && it.start){
+      const today=new Date(); today.setHours(0,0,0,0);
+      const start=new Date(it.start); start.setHours(0,0,0,0);
+      const elapsed=Math.round((today-start)/864e5);
+      const frac=Math.max(0,Math.min(1,(est-elapsed)/est));
+      return Math.max(0,Math.round(specVal*frac));
+    }
+    return specVal>0?specVal:((it.total&&it.total>0)?it.total:1);
   }
   function loadInventory(){
     let db=[];
@@ -3697,7 +3723,14 @@ document.getElementById('pd-edit-btn').onclick=()=>{
   function currentOption(){
     if(filterOn) return OPTIONS.find(function(o){ return o.combo; });
     const btns=getNavBtns();
-    const active=TAB_DEFS.find(function(d){
+    // 注意：btns[0]（正在消耗／側邊欄入口「物資管理」）的 className 會被
+    // hideRealTabs() 覆寫成「目前是否有任一物資頁籤被選中」的視覺狀態，
+    // 不是「正在消耗這個分頁本身有沒有被選中」，所以不能拿它來判斷目前分頁，
+    // 否則只要任何物資頁籤是選中的，btns[0] 就一定會被誤判成「符合 bg-primary」，
+    // 導致下拉選單不管實際選到庫存囤貨/已結案/全部物資，永遠顯示「正在消耗」。
+    // 改成優先比對 1~3（庫存囤貨/已結案/全部物資，這三顆的 className 完全交給
+    // React 原生管理、我們沒有動過），都沒中才代表現在真的是「正在消耗」。
+    const active=TAB_DEFS.slice(1).find(function(d){
       return btns[d.idx] && btns[d.idx].className.indexOf('bg-primary')!==-1;
     });
     const idx=active?active.idx:0;
@@ -3720,10 +3753,47 @@ document.getElementById('pd-edit-btn').onclick=()=>{
       const b=btns[opt.idx];
       if(b) b.click();
     }
-    updateChipLabel();
+    // 注意：這裡「不能」馬上呼叫 updateChipLabel()/hideRealTabs()。React 是在
+    // .click() 觸發的事件處理完之後、下一次繪製前才真正把新的 state 反映到
+    // DOM 上（包含 <h2> 標題文字、側邊欄按鈕的 class），如果在這裡同步呼叫，
+    // 讀到的其實還是「點擊前」的舊狀態。這就是切換時會看到「標題已經換了，
+    // 但下拉選單文字/圓點還停在舊選項」閃一下的原因。
+    //
+    // 側邊欄「物資管理」那顆按鈕還有另一個更明顯的閃爍來源：React 重新渲染
+    // nav 時，會把我們覆寫過的文字「物資管理」跟反白樣式打回原本的「正在消耗」
+    // 樣子，本來要等後面全域的 60ms 防手震 MutationObserver 才會把它改回來，
+    // 這段空窗期如果剛好碰到瀏覽器繪製，畫面上就會看到側邊欄那顆字閃一下、
+    // 或反白狀態跳一下。改成用兩層 requestAnimationFrame（等瀏覽器真的完成
+    // 這一輪重繪之後）馬上把 hideRealTabs()／下拉選單一起同步更新，讓兩者
+    // 幾乎不會有機會露出「還沒蓋回去」的中間狀態。
+    requestAnimationFrame(function(){
+      requestAnimationFrame(function(){
+        hideRealTabs();
+        initChip();
+        updateChipLabel();
+      });
+    });
+  }
+
+  // 「未結案物資」濾鏡實際上是借用「全部物資」這顆分頁再疊加 CSS 濾鏡做出來的，
+  // React 原生的 <h2> 標題永遠只會照著真正的 d state 顯示「全部物資」，不會自己
+  // 換成「未結案物資」。這裡額外把標題文字也同步覆寫一次，讓標題跟下拉選單選到
+  // 的項目維持一致；React 每次重新渲染都會把文字改回「全部物資」，所以要在每次
+  // 更新下拉選單的同時重貼一次。
+  function syncComboTitle(){
+    const h2=document.querySelector('main h2');
+    if(!h2) return;
+    const span=h2.querySelector('span');
+    if(!span) return;
+    if(filterOn){
+      if(span.textContent.indexOf('未結案物資')===-1 && span.textContent.indexOf('全部物資')!==-1){
+        span.textContent=span.textContent.replace('全部物資','未結案物資');
+      }
+    }
   }
 
   function updateChipLabel(){
+    syncComboTitle();
     const chip=document.getElementById('combo-select-chip');
     if(chip){
       const cur=currentOption();
