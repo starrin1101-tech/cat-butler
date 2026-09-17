@@ -3707,6 +3707,19 @@ document.getElementById('pd-edit-btn').onclick=()=>{
     });
   }
 
+  // 「未結案物資」濾鏡專用、不 debounce 的即時同步器。
+  // 下面主要的防手震 MutationObserver 是刻意延遲 60ms 才動作（避免效能問題），
+  // 但如果拿它來藏已結案卡片，使用者會先看到「全部物資」畫面完整跑出來、
+  // 過一下子已結案卡片才被藏掉，卡片重新排列造成明顯的版面跳動／位移。
+  // MutationObserver 的 callback 本身是微任務（microtask），會在瀏覽器排上
+  // 這一輪繪製之前就先執行完，所以只要在這裡「不要」加 setTimeout/rAF 之類
+  // 延遲，就能在使用者看到畫面之前就把已結案卡片藏好，感覺起來是「一次到位」，
+  // 不會有卡片先出現又消失、把下面內容推來推去的跳動。
+  const doneFilterMo=new MutationObserver(function(){
+    if(filterOn) applyDoneFilter();
+  });
+  doneFilterMo.observe(document.documentElement,{childList:true,subtree:true});
+
   const ACTIVE_CLASS='w-full px-4 py-3 text-left font-bold text-sm rounded-2xl flex items-center gap-2 transition-all cursor-pointer bg-primary text-white shadow-md shadow-primary/20 glow-primary';
   const INACTIVE_CLASS='w-full px-4 py-3 text-left font-bold text-sm rounded-2xl flex items-center gap-2 transition-all cursor-pointer text-zinc-400 hover:text-zinc-150 hover:bg-zinc-800/40';
 
@@ -3768,7 +3781,7 @@ document.getElementById('pd-edit-btn').onclick=()=>{
   // 依照 selectedOption 實際去驅動畫面：點擊對應的原生分頁按鈕、套用或清除濾鏡。
   // selectOption()（使用者主動選）與 restoreSelection()（切回頁籤時自動還原）
   // 共用這一條路徑，確保兩種情境的行為完全一致，不會有一邊漏做什麼的問題。
-  function applySelection(){
+  function applySelection(onSettled){
     const opt=currentOption();
     const btns=getNavBtns();
     // .click() 是同步派發事件，所以在它回來之前偵聽器就已經跑完了，
@@ -3778,10 +3791,17 @@ document.getElementById('pd-edit-btn').onclick=()=>{
       if(opt.combo){
         const allBtn=btns[3]; // 「未結案物資」借用「全部物資」這顆分頁
         if(!allBtn) return;
-        if(actualTabIdx()!==3) allBtn.click(); // 已經在正確分頁上就不用重點一次，避免多餘的重新渲染
         filterOn=true;
-        setTimeout(applyDoneFilter,30);
-        requestAnimationFrame(function(){ requestAnimationFrame(applyDoneFilter); });
+        if(actualTabIdx()!==3){
+          allBtn.click(); // 已經在正確分頁上就不用重點一次，避免多餘的重新渲染
+          // 這裡不需要再手動延遲呼叫 applyDoneFilter()：上面新增的
+          // doneFilterMo 會在 React 因為這次點擊而新增卡片節點的同一輪
+          // 微任務裡就自動處理掉，不會有畫面先出現全部卡片、再被拿掉的閃爍。
+        }else{
+          // 邊界情況：本來就已經在「全部物資」分頁，不會點擊、也就不會有
+          // 新的 DOM 異動觸發 doneFilterMo，所以這裡要自己補呼叫一次。
+          applyDoneFilter();
+        }
       }else{
         filterOn=false;
         clearDoneFilter();
@@ -3809,6 +3829,7 @@ document.getElementById('pd-edit-btn').onclick=()=>{
         hideRealTabs();
         initChip();
         updateChipLabel();
+        if(typeof onSettled==='function') onSettled();
       });
     });
   }
@@ -3917,9 +3938,17 @@ document.getElementById('pd-edit-btn').onclick=()=>{
     applySelection();
   }
 
-  // 使用者親手點側邊欄頁籤時，React 會重置畫面。用 capture 階段先攔到這個點擊，
-  // 等它渲染完之後馬上嘗試還原，讓「切回物資管理」能直接回到剛剛選的狀態，
-  // 中間不會露出預設的「正在消耗」。
+  // 使用者親手點側邊欄頁籤時,React 會把畫面重置成該頁籤的原生預設內容。
+  // 如果只是「等它渲染完再修正」（前一版的做法），使用者就會先看到一瞬間
+  // 的預設「正在消耗」，等下一輪 rAF 才被我們的修正蓋掉——這就是閃爍的來源。
+  //
+  // 真正要做到「不閃」，必須在 React 的 onClick 處理這次點擊之前就把它攔下來：
+  // 用 capture 階段監聽（比 React 掛在容器上的 bubble 階段監聽器更早跑到），
+  // 只要偵測到使用者點的是側邊欄「物資管理」這顆入口按鈕、而且我們記住的選擇
+  // 不是預設的「正在消耗」，就 preventDefault + stopPropagation 讓這次點擊
+  // 完全不會傳到 React 手上，改成同步呼叫 applySelection() 直接把點擊轉發給
+  // 真正該顯示的那顆隱藏按鈕（例如「全部物資」）。這樣 React 從頭到尾只會渲染
+  // 「使用者記住的狀態」這一次，中間不會有機會先畫出預設值再改過去。
   document.addEventListener('click', function(e){
     if(programmaticNavClick) return; // 我們自己觸發的切換，不是使用者換頁籤
     const t=e.target;
@@ -3928,6 +3957,64 @@ document.getElementById('pd-edit-btn').onclick=()=>{
     if(!btn) return;
     if(btn.id==='combo-select-chip' || btn.id==='fp-nav-btn') return; // 下拉鈕/隨機配餐鈕不算頁籤
     if(!btn.closest('aside nav')) return; // 只看側邊欄導覽列裡的按鈕
+
+    const btns=getNavBtns();
+    if(btn===btns[0]){
+      // 使用者點的是「物資管理」入口本身——這是唯一「從別的頁籤切回物資管理」
+      // 會經過的按鈕（庫存囤貨/已結案/全部物資這三顆平常是隱藏的，點不到）。
+      const opt=currentOption();
+      const wantIdx=opt.combo?3:opt.idx; // 「未結案物資」借用的是「全部物資」這顆分頁
+      if(wantIdx!==0){
+        // 重要：stopPropagation() 會讓這個點擊完全不會冒泡到 <nav> 本身，
+        // 但「隨機配餐」那個功能自己也掛了一個監聽器在 nav 上
+        // （watchRealTabClicks()），專門負責「點了其他任何真正的頁籤按鈕，
+        // 就自動關閉面板」。因為我們在 capture 階段就把事件攔胡、擋下來，
+        // 那個監聽器永遠等不到這次點擊，面板就關不掉、<main> 會一直卡在
+        // display:none——這就是「在隨機配餐頁籤時點物資管理完全沒反應」的
+        // 真正原因（不是沒反應，是背景真的切換了，只是面板還蓋在上面沒收起來）。
+        // 修法：既然攔胡了事件、等於我們要自己負責它原本會做的事，
+        // 攔截的同時主動把面板關掉。window.__fpOpenPanel 本身設計成一顆
+        // 開關（再呼叫一次＝關閉），直接借用最安全。
+        const fpPage=document.getElementById('fp-page');
+        const fromPanel = fpPage && fpPage.classList.contains('open');
+        if(fromPanel && typeof window.__fpOpenPanel==='function'){
+          window.__fpOpenPanel();
+        }
+        e.preventDefault();
+        e.stopPropagation();
+        // 關鍵線索：從「隨機配餐」切回來完全不會跳動，從「寵物資訊」／「歷史
+        // 比價牆」切回來卻一定會跳——這兩種情況在 React 眼中其實是完全不同的
+        // 事情：
+        //   - 隨機配餐：React 的畫面狀態 d 其實從頭到尾都還停在物資管理那幾個
+        //     分頁之一，物資管理整組 DOM（統計卡片、警示訊息、卡片列表…）
+        //     一直都存在，只是被我們自己用 display:none 蓋住而已。所以「顯示
+        //     回來」只是單純把已經算好、算完整的畫面掀開，沒有任何新東西要算。
+        //   - 寵物資訊／歷史比價牆：d 真的變成 "pets"／"wall"，React 會把整個
+        //     物資管理的 DOM 完全銷毀。切回來時，這一大批 DOM（統計卡片、
+        //     警示訊息、篩選列、所有物資卡片…）要重新從零建立。這中間牽涉到
+        //     動畫函式庫（Framer Motion）量測版面高度、我們自己要把下拉選單
+        //     按鈕重新插回全新的 <h2> 裡、已結案卡片濾鏡要重新套用…任何一個
+        //     環節只要跟瀏覽器「這一幀該畫什麼」的時間點沒有完全對齊，使用者
+        //     就會先看到一個「還沒收尾」的中間畫面，下一瞬間才跳成最終樣子，
+        //     感覺像整塊內容往下位移——這正是只有非隨機配餐頁籤才會發生的原因。
+        //
+        // 修法：不要再賭「兩層 requestAnimationFrame 一定來得及」，而是乾脆讓
+        // <main> 在整個重新掛載期間保持看不見（visibility:hidden，只是不顯示，
+        // 不影響版面照樣計算），等 applySelection() 收尾流程（套用濾鏡、補回
+        // 下拉選單按鈕、同步標籤文字）確定全部跑完之後，才一次性讓它現身。
+        // 這樣不管背後重新掛載花多久、中間經過幾個中間狀態，使用者看到的
+        // 永遠只有「已經處理乾淨」的最終畫面。隨機配餐那條路徑本來就沒有這個
+        // 問題（原本就已經是好的），這裡加了也不會有副作用，只是多一層保險。
+        const mainEl=document.querySelector('main');
+        if(mainEl) mainEl.style.visibility='hidden';
+        applySelection(function revealMain(){
+          if(mainEl) mainEl.style.visibility='';
+        });
+        return;
+      }
+      // 使用者記住的本來就是「正在消耗」（預設值），照原本的點擊走就好，
+      // 反正結果一樣，不需要攔截。
+    }
     // 離開物資管理畫面期間，濾鏡在其他頁面上沒有意義，先標記成未套用；
     // 但 selectedOption（使用者的選擇）刻意保留不動，這就是「記住」的關鍵。
     filterOn=false;
