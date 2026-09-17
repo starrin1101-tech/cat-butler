@@ -3664,7 +3664,22 @@ document.getElementById('pd-edit-btn').onclick=()=>{
     {label:TAB_DEFS[2].menuLabel, idx:2, dot:TAB_DEFS[2].dot}, // 已結案
     {label:TAB_DEFS[3].menuLabel, idx:3, dot:TAB_DEFS[3].dot}  // 全部物資
   ];
-  let filterOn=false; // 「未結案物資」濾鏡是否啟用中
+  // ── 使用者最後選取的篩選狀態（單一事實來源 / single source of truth）──────
+  // 「未結案物資」不是 App 原生的頁籤，而是我們借用「全部物資」再疊一層 CSS 濾鏡
+  // 偽裝出來的，App 原生的 React state 裡根本沒有這個值。更重要的是：使用者點側邊欄
+  // 切走頁籤再切回「物資管理」時，React 會把畫面重置回它原生的預設狀態（正在消耗），
+  // 它完全不知道使用者剛剛選過什麼。所以「使用者選了哪個選項」這件事必須由我們自己
+  // 保存下來，切回來時再主動還原，否則卡片就會掉回預設值、跟下拉選單對不上。
+  //
+  // selectedOption 就是這個保存點：畫面上的下拉選單文字、以及「卡片該顯示哪一批」
+  // 兩邊都以它為準，任何時候只要偵測到實際畫面跟它不一致，就由 restoreSelection()
+  // 主動把畫面拉回來，而不是反過來把使用者的選擇歸零。
+  let selectedOption=OPTIONS[0]; // 預設「正在消耗」
+  let filterOn=false;            // 「未結案物資」的 CSS 濾鏡目前是否已實際套用在畫面上
+  // selectOption()/restoreSelection() 會用程式去 .click() 隱藏的原生按鈕來借用 App
+  // 既有的切換邏輯，這種「自己觸發的」點擊不能被當成使用者親手切換頁籤，
+  // 否則會把剛還原好的狀態又誤判成使用者要離開。用這個旗標把兩者區分開。
+  let programmaticNavClick=false;
 
   // 用「在 nav 裡的第幾個按鈕」取代用文字內容比對——因為我們要把第一個按鈕的
   // 顯示文字從「正在消耗」改成「物資管理」，如果還用文字比對會找不到自己。
@@ -3720,38 +3735,61 @@ document.getElementById('pd-edit-btn').onclick=()=>{
     }
   }
 
-  function currentOption(){
-    if(filterOn) return OPTIONS.find(function(o){ return o.combo; });
+  // 讀取「畫面上實際是哪個原生分頁」（純粹讀 DOM，不看我們保存的狀態）。
+  // 注意：btns[0]（正在消耗／側邊欄入口「物資管理」）的 className 會被
+  // hideRealTabs() 覆寫成「目前是否有任一物資頁籤被選中」的視覺狀態，
+  // 不是「正在消耗這個分頁本身有沒有被選中」，所以不能拿它來判斷目前分頁，
+  // 否則只要任何物資頁籤是選中的，btns[0] 就一定會被誤判成「符合 bg-primary」。
+  // 改成優先比對 1~3（庫存囤貨/已結案/全部物資，這三顆的 className 完全交給
+  // React 原生管理、我們沒有動過），都沒中才代表現在真的是「正在消耗」。
+  function actualTabIdx(){
     const btns=getNavBtns();
-    // 注意：btns[0]（正在消耗／側邊欄入口「物資管理」）的 className 會被
-    // hideRealTabs() 覆寫成「目前是否有任一物資頁籤被選中」的視覺狀態，
-    // 不是「正在消耗這個分頁本身有沒有被選中」，所以不能拿它來判斷目前分頁，
-    // 否則只要任何物資頁籤是選中的，btns[0] 就一定會被誤判成「符合 bg-primary」，
-    // 導致下拉選單不管實際選到庫存囤貨/已結案/全部物資，永遠顯示「正在消耗」。
-    // 改成優先比對 1~3（庫存囤貨/已結案/全部物資，這三顆的 className 完全交給
-    // React 原生管理、我們沒有動過），都沒中才代表現在真的是「正在消耗」。
     const active=TAB_DEFS.slice(1).find(function(d){
       return btns[d.idx] && btns[d.idx].className.indexOf('bg-primary')!==-1;
     });
-    const idx=active?active.idx:0;
-    return OPTIONS.find(function(o){ return o.idx===idx; }) || OPTIONS[0];
+    return active?active.idx:0;
+  }
+
+  // 下拉選單要顯示什麼，一律以「使用者最後選取的狀態」為準，不是以當下 DOM 為準。
+  // 因為 React 重新掛載時會先把畫面重置成預設值，如果這裡跟著 DOM 走，選單就會
+  // 跟著跳回「正在消耗」——那正好是我們要避免的「狀態被歸零」。改以保存值為準，
+  // 再由 restoreSelection() 負責把畫面拉回來跟它一致。
+  function currentOption(){
+    return selectedOption || OPTIONS[0];
   }
 
   function selectOption(opt){
     closeDropdown();
+    // 先把使用者的選擇記錄下來——這是之後切走頁籤再切回來時能夠還原的關鍵。
+    selectedOption=opt;
+    applySelection();
+  }
+
+  // 依照 selectedOption 實際去驅動畫面：點擊對應的原生分頁按鈕、套用或清除濾鏡。
+  // selectOption()（使用者主動選）與 restoreSelection()（切回頁籤時自動還原）
+  // 共用這一條路徑，確保兩種情境的行為完全一致，不會有一邊漏做什麼的問題。
+  function applySelection(){
+    const opt=currentOption();
     const btns=getNavBtns();
-    if(opt.combo){
-      const allBtn=btns[3]; // 全部物資
-      if(!allBtn) return;
-      allBtn.click();
-      filterOn=true;
-      setTimeout(applyDoneFilter,30);
-      requestAnimationFrame(function(){ requestAnimationFrame(applyDoneFilter); });
-    }else{
-      filterOn=false;
-      clearDoneFilter();
-      const b=btns[opt.idx];
-      if(b) b.click();
+    // .click() 是同步派發事件，所以在它回來之前偵聽器就已經跑完了，
+    // 這裡用 try/finally 把旗標還原，確保就算中途丟例外也不會卡在 true。
+    programmaticNavClick=true;
+    try{
+      if(opt.combo){
+        const allBtn=btns[3]; // 「未結案物資」借用「全部物資」這顆分頁
+        if(!allBtn) return;
+        if(actualTabIdx()!==3) allBtn.click(); // 已經在正確分頁上就不用重點一次，避免多餘的重新渲染
+        filterOn=true;
+        setTimeout(applyDoneFilter,30);
+        requestAnimationFrame(function(){ requestAnimationFrame(applyDoneFilter); });
+      }else{
+        filterOn=false;
+        clearDoneFilter();
+        const b=btns[opt.idx];
+        if(b && actualTabIdx()!==opt.idx) b.click();
+      }
+    }finally{
+      programmaticNavClick=false;
     }
     // 注意：這裡「不能」馬上呼叫 updateChipLabel()/hideRealTabs()。React 是在
     // .click() 觸發的事件處理完之後、下一次繪製前才真正把新的 state 反映到
@@ -3846,6 +3884,63 @@ document.getElementById('pd-edit-btn').onclick=()=>{
     }
   }
 
+  // ── 切走頁籤再切回來時「保留並還原」使用者最後選取的狀態 ──────────────
+  // 「未結案物資」是我們自己疊出來的偽狀態（借「全部物資」分頁 + CSS 濾鏡），
+  // App 原生的 React state 裡根本沒有這個值；而且使用者切走頁籤再切回「物資管理」
+  // 時，React 會把畫面重置回它原生的預設狀態（正在消耗），它不知道使用者剛剛選過
+  // 什麼。因此「還原」這件事必須由我們主動做：以保存下來的 selectedOption 為準，
+  // 只要發現目前人在物資管理畫面、但實際顯示的分頁/濾鏡跟保存值不一致，就重新
+  // 套用一次，讓卡片內容回到使用者剛剛選的狀態（而不是把選擇歸零）。
+
+  // 目前是否真的停留在「物資管理」這組畫面上（而不是寵物資訊/歷史比價牆/隨機配餐）。
+  // 判斷依據：主內容區的 <h2> 標題是不是「物資管理．XX」。
+  function onMaterialView(){
+    const main=document.querySelector('main');
+    if(!main || main.style.display==='none') return false;
+    const h2=main.querySelector('h2');
+    return !!(h2 && h2.textContent.indexOf('物資管理')!==-1);
+  }
+
+  // 還原節流：React 剛重新掛載時 DOM 會連續變動很多次，避免在同一個瞬間重複
+  // 觸發還原動作（每次還原都會 .click() 一次、引發新的渲染，可能打成迴圈）。
+  let restoringUntil=0;
+  function restoreSelection(){
+    if(!onMaterialView()) return;
+    const opt=currentOption();
+    const wantIdx=opt.combo?3:opt.idx;            // 「未結案物資」對應的原生分頁是「全部物資」
+    const tabMismatch=actualTabIdx()!==wantIdx;   // 卡片顯示的分頁跟使用者選的不一致
+    const filterMismatch=!!opt.combo!==filterOn;  // 濾鏡該開沒開 / 該關沒關
+    if(!tabMismatch && !filterMismatch) return;   // 已經一致就什麼都不用做
+    const now=Date.now();
+    if(now<restoringUntil) return;                // 還在上一次還原的冷卻時間內
+    restoringUntil=now+400;
+    applySelection();
+  }
+
+  // 使用者親手點側邊欄頁籤時，React 會重置畫面。用 capture 階段先攔到這個點擊，
+  // 等它渲染完之後馬上嘗試還原，讓「切回物資管理」能直接回到剛剛選的狀態，
+  // 中間不會露出預設的「正在消耗」。
+  document.addEventListener('click', function(e){
+    if(programmaticNavClick) return; // 我們自己觸發的切換，不是使用者換頁籤
+    const t=e.target;
+    if(!t || !t.closest) return;
+    const btn=t.closest('button');
+    if(!btn) return;
+    if(btn.id==='combo-select-chip' || btn.id==='fp-nav-btn') return; // 下拉鈕/隨機配餐鈕不算頁籤
+    if(!btn.closest('aside nav')) return; // 只看側邊欄導覽列裡的按鈕
+    // 離開物資管理畫面期間，濾鏡在其他頁面上沒有意義，先標記成未套用；
+    // 但 selectedOption（使用者的選擇）刻意保留不動，這就是「記住」的關鍵。
+    filterOn=false;
+    requestAnimationFrame(function(){
+      requestAnimationFrame(function(){
+        restoreSelection();
+        hideRealTabs();
+        initChip();
+        updateChipLabel();
+      });
+    });
+  }, true);
+
   // 畫面重新渲染時（切換排序、搜尋等）持續重新套用濾鏡、確保小按鈕還在、標籤文字正確。
   // 加上 debounce：一次瞬間如果有一大串 DOM 異動（例如頁面剛載入、React 一口氣
   // 建立整個畫面），只在異動「安定下來」之後執行一次，不要每一筆異動都重新掃描一次
@@ -3854,6 +3949,10 @@ document.getElementById('pd-edit-btn').onclick=()=>{
   const mo=new MutationObserver(function(){
     clearTimeout(debounceTimer);
     debounceTimer=setTimeout(function(){
+      // 不只在點頁籤時還原：任何原因造成的重新掛載/重置（React 內部重新渲染、
+      // 資料變動等）都會走到這裡，統一檢查一次畫面有沒有偏離使用者的選擇，
+      // 有偏離就拉回來，確保「保留狀態」在各種情況下都成立。
+      restoreSelection();
       if(filterOn) applyDoneFilter();
       hideRealTabs();
       initChip();
