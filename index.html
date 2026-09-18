@@ -822,7 +822,14 @@ const J4=[{value:"🐱",label:"🐱 貓咪"},{value:"🐶",label:"🐶 狗狗"},
         </div>
       </div>
       <div id="cat-loader-dots"><span></span><span></span><span></span></div>
+      <div id="cat-loader-version">v1.0</div>
     </div>
+    <style>
+      #cat-loader-version{
+        margin-top:2px;font-size:13px;font-weight:700;letter-spacing:.06em;
+        color:rgba(196,181,253,.45);user-select:none;
+      }
+    </style>
     <style>
       #cat-loader{
         position:fixed;inset:0;z-index:99999;background:#0b0a10;
@@ -4438,6 +4445,69 @@ if ('serviceWorker' in navigator) {
     });
   });
 }
+</script>
+
+<script>
+// ══════════════════════════════════════════════════════════════
+// 🏷️ 版本號：顯示在側邊欄最下方（「本機存檔工具」按鈕底下），小小一行、不搶版面。
+// 跟載入動畫下方的版本號用同一個數字，要改版本只要兩個地方都改掉這個常數就好。
+//
+// 這個數字單純代表「這批介面補丁修正到第幾輪」，從 v1.0 開始算，之後每次
+// 調整就往上加一（例如 v1.1、v1.2...），累積到一定程度再跳大版號（v2.0）。
+// 跟「匯出備份 (.json)」裡的 version:"12.8"（那是備份檔案格式版本，另外
+// 獨立管理）、以及 GitHub Pages 的部署次數都沒有關係，不要搞混。
+// ══════════════════════════════════════════════════════════════
+(function(){
+  'use strict';
+  var APP_VERSION='v1.0';
+
+  window.__CAT_APP_VERSION=APP_VERSION;
+
+  function mount(){
+    var aside=document.querySelector('aside');
+    if(!aside) return false; // 等側邊欄真的出現才顯示，避免其他頁面（如寵物資訊）也跑出來
+    var el=document.getElementById('app-version-tag');
+    if(!el){
+      el=document.createElement('div');
+      el.id='app-version-tag';
+      // 用 position:fixed 完全脫離文件流，直接掛在 body 底下（不是 aside 裡面）：
+      // 不管側邊欄本身的排版方式是 flex、固定高度、還是 space-between，這個標籤
+      // 都不會被算進側邊欄的內容高度裡，也就不可能再把「本機存檔工具」等其他
+      // 區塊撐高或往上擠。
+      el.style.cssText='position:fixed;bottom:10px;z-index:30;text-align:left;'+
+        'font-size:13px;font-weight:400;letter-spacing:.03em;'+
+        'font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;'+
+        'color:rgba(161,161,170,.45);user-select:none;pointer-events:none;';
+      document.body.appendChild(el);
+    }
+    if(el.textContent!==APP_VERSION) el.textContent=APP_VERSION;
+    // 改成跟側邊欄其他內容（導覽項目文字、「本機存檔工具」標籤與按鈕）共用
+    // 同一條左邊界，而不是置中。側邊欄裡的東西全部都是靠左對齊的，只有這行
+    // 置中的話，看起來會像一個格格不入、飄在中間的標籤；靠左對齊才會讀起來
+    // 像側邊欄內容欄位最下面自然接續的一行小字（很像常見網站頁尾的版本/
+    // 版權資訊寫法）。直接量測 aside 目前的左內距，不寫死數字，之後側邊欄
+    // 版面怎麼調整都會自動對齊正確位置。
+    var r=aside.getBoundingClientRect();
+    var padLeft=parseFloat(getComputedStyle(aside).paddingLeft)||0;
+    el.style.left=(r.left+padLeft)+'px';
+    el.style.width='auto';
+    return true;
+  }
+
+  window.addEventListener('resize', function(){ mount(); });
+
+  if(!mount()){
+    var mo=new MutationObserver(function(){ mount(); });
+    mo.observe(document.documentElement,{childList:true,subtree:true});
+    var tries=0;
+    var t=setInterval(function(){
+      if(mount() || ++tries>250) clearInterval(t);
+    },20);
+  }else{
+    var mo2=new MutationObserver(function(){ mount(); });
+    mo2.observe(document.documentElement,{childList:true,subtree:true});
+  }
+})();
 </script>
 
 </body>
