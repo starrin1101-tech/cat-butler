@@ -3938,6 +3938,41 @@ document.getElementById('pd-edit-btn').onclick=()=>{
     applySelection();
   }
 
+  // 等「這次切換牽動的 DOM 異動」真的安靜下來才觸發回呼，而不是賭一個固定的
+  // 兩層 requestAnimationFrame 一定夠用。
+  //
+  // 上一版有個問題：監看範圍是整個 document.documentElement，而且連
+  // attributes/characterData 的異動都算——範圍太廣、太敏感。頁面上任何跟這次
+  // 切換無關的背景活動（甚至我們自己收尾腳本做的細微樣式調整、文字更新）都會
+  // 不斷重置「安靜計時器」，導致實際等待時間常常被一路推向 500ms 這個上限，
+  // 這就是使用者會感覺到「明顯停頓一下」的真正原因。
+  //
+  // 改成只監看 target（也就是 <main>）底下「真正有節點被加入/移除」這件事
+  // （不看 attributes/characterData），範圍縮小到只跟這次重新掛載有關的異動，
+  // 時間也大幅縮短——正常情況下 React 一次 commit 通常一兩個 tick 內就會
+  // 安靜下來，不需要等到接近上限才觸發。
+  function waitForDomQuiet(target, cb, quietMs, maxWaitMs){
+    quietMs = quietMs || 40;
+    maxWaitMs = maxWaitMs || 180;
+    if(!target){ cb(); return; }
+    let done=false, timer=null, hardCap=null;
+    const finish=function(){
+      if(done) return;
+      done=true;
+      clearTimeout(timer);
+      clearTimeout(hardCap);
+      mo.disconnect();
+      cb();
+    };
+    const mo=new MutationObserver(function(){
+      clearTimeout(timer);
+      timer=setTimeout(finish, quietMs);
+    });
+    mo.observe(target,{childList:true,subtree:true});
+    timer=setTimeout(finish, quietMs); // 保底：萬一完全沒偵測到任何異動也不能永遠卡住
+    hardCap=setTimeout(finish, maxWaitMs); // 絕對上限，確保最糟情況也只是短暫延遲、不會卡住不現身
+  }
+
   // 使用者親手點側邊欄頁籤時,React 會把畫面重置成該頁籤的原生預設內容。
   // 如果只是「等它渲染完再修正」（前一版的做法），使用者就會先看到一瞬間
   // 的預設「正在消耗」，等下一輪 rAF 才被我們的修正蓋掉——這就是閃爍的來源。
@@ -3962,8 +3997,46 @@ document.getElementById('pd-edit-btn').onclick=()=>{
     if(btn===btns[0]){
       // 使用者點的是「物資管理」入口本身——這是唯一「從別的頁籤切回物資管理」
       // 會經過的按鈕（庫存囤貨/已結案/全部物資這三顆平常是隱藏的，點不到）。
+      //
+      // 重要：不管使用者記住的選項是不是預設的「正在消耗」，只要是從寵物資訊／
+      // 歷史比價牆／隨機配餐切回來，都一定會觸發「重新掛載」這個動作本身
+      // （React 要把整組物資管理 DOM 從零建立一次），跟選了哪個選項無關。
+      // 上一版只有 wantIdx!==0（選了非預設選項）才會套用 visibility:hidden
+      // 保護，這就是為什麼選「正在消耗」時切回來還是會跳動——保護根本沒被
+      // 觸發。這裡改成不論選的是哪個選項，都一律先把 <main> 藏起來，等真的
+      // 穩定了才現身。
       const opt=currentOption();
       const wantIdx=opt.combo?3:opt.idx; // 「未結案物資」借用的是「全部物資」這顆分頁
+      const fpPage=document.getElementById('fp-page');
+      const fromPanel = fpPage && fpPage.classList.contains('open');
+      const mainEl=document.querySelector('main');
+      if(mainEl){
+        // 拿掉刻意的淡出/淡入轉場，改回硬切換（沒有 transition）。
+        // 原因：任何「看得出時間長度」的轉場，不管多短，使用者都會把它讀成
+        // 「有一段延遲」，這正是你反映「還是感覺得到停頓／緩慢浮現」的來源，
+        // 跟轉場本身有沒有卡頓其實是兩件事。既然上一步已經把 waitForDomQuiet()
+        // 監看的範圍收斂到只看 <main>，判斷「穩定了沒」應該非常快（通常一兩個
+        // 畫面更新內），這裡就不用再刻意用轉場去「掩蓋」時機誤差——改成跟
+        // 「隨機配餐」一樣的硬切換，感覺起來才會是真正的「啪」一聲到位，
+        // 而不是「有一段刻意設計的動畫」。
+        mainEl.style.transition='none';
+        mainEl.style.opacity='0';
+        mainEl.style.pointerEvents='none';
+      }
+      // 等「這次重新掛載牽動的 DOM 異動」真的安靜下來才讓 <main> 現身。
+      // 監看範圍已收斂到只看 <main> 底下的節點增減，時間也壓到最緊
+      // （quietMs 24ms／上限 120ms）：正常情況下 React 一次 commit 通常
+      // 一兩個畫面更新內就會安靜下來，實際等待時間應該落在肉眼幾乎無法
+      // 分辨的範圍內，感覺起來跟「隨機配餐」的即時切換沒有兩樣。
+      const reveal=function(){
+        waitForDomQuiet(mainEl, function(){
+          if(mainEl){
+            mainEl.style.transition='none';
+            mainEl.style.opacity='1';
+            mainEl.style.pointerEvents='';
+          }
+        }, 24, 120);
+      };
       if(wantIdx!==0){
         // 重要：stopPropagation() 會讓這個點擊完全不會冒泡到 <nav> 本身，
         // 但「隨機配餐」那個功能自己也掛了一個監聽器在 nav 上
@@ -3975,45 +4048,28 @@ document.getElementById('pd-edit-btn').onclick=()=>{
         // 修法：既然攔胡了事件、等於我們要自己負責它原本會做的事，
         // 攔截的同時主動把面板關掉。window.__fpOpenPanel 本身設計成一顆
         // 開關（再呼叫一次＝關閉），直接借用最安全。
-        const fpPage=document.getElementById('fp-page');
-        const fromPanel = fpPage && fpPage.classList.contains('open');
         if(fromPanel && typeof window.__fpOpenPanel==='function'){
           window.__fpOpenPanel();
         }
         e.preventDefault();
         e.stopPropagation();
-        // 關鍵線索：從「隨機配餐」切回來完全不會跳動，從「寵物資訊」／「歷史
-        // 比價牆」切回來卻一定會跳——這兩種情況在 React 眼中其實是完全不同的
-        // 事情：
-        //   - 隨機配餐：React 的畫面狀態 d 其實從頭到尾都還停在物資管理那幾個
-        //     分頁之一，物資管理整組 DOM（統計卡片、警示訊息、卡片列表…）
-        //     一直都存在，只是被我們自己用 display:none 蓋住而已。所以「顯示
-        //     回來」只是單純把已經算好、算完整的畫面掀開，沒有任何新東西要算。
-        //   - 寵物資訊／歷史比價牆：d 真的變成 "pets"／"wall"，React 會把整個
-        //     物資管理的 DOM 完全銷毀。切回來時，這一大批 DOM（統計卡片、
-        //     警示訊息、篩選列、所有物資卡片…）要重新從零建立。這中間牽涉到
-        //     動畫函式庫（Framer Motion）量測版面高度、我們自己要把下拉選單
-        //     按鈕重新插回全新的 <h2> 裡、已結案卡片濾鏡要重新套用…任何一個
-        //     環節只要跟瀏覽器「這一幀該畫什麼」的時間點沒有完全對齊，使用者
-        //     就會先看到一個「還沒收尾」的中間畫面，下一瞬間才跳成最終樣子，
-        //     感覺像整塊內容往下位移——這正是只有非隨機配餐頁籤才會發生的原因。
-        //
-        // 修法：不要再賭「兩層 requestAnimationFrame 一定來得及」，而是乾脆讓
-        // <main> 在整個重新掛載期間保持看不見（visibility:hidden，只是不顯示，
-        // 不影響版面照樣計算），等 applySelection() 收尾流程（套用濾鏡、補回
-        // 下拉選單按鈕、同步標籤文字）確定全部跑完之後，才一次性讓它現身。
-        // 這樣不管背後重新掛載花多久、中間經過幾個中間狀態，使用者看到的
-        // 永遠只有「已經處理乾淨」的最終畫面。隨機配餐那條路徑本來就沒有這個
-        // 問題（原本就已經是好的），這裡加了也不會有副作用，只是多一層保險。
-        const mainEl=document.querySelector('main');
-        if(mainEl) mainEl.style.visibility='hidden';
-        applySelection(function revealMain(){
-          if(mainEl) mainEl.style.visibility='';
+        applySelection(reveal); // 同步直接切到使用者記住的那個分頁，跳過預設的「正在消耗」
+      }else{
+        // 使用者記住的本來就是「正在消耗」（預設值），不用攔截、不用轉發，
+        // 讓這次點擊照原本路徑正常走（自然會冒泡到 nav，「隨機配餐」的
+        // watchRealTabClicks 也能正常收到、自己把面板關掉，不用我們插手）。
+        // 但一樣要等重新掛載後的 DOM 真正穩定，才能讓 <main> 現身，
+        // 並且照樣要跑一次收尾同步（側邊欄樣式、下拉選單文字）。
+        requestAnimationFrame(function(){
+          requestAnimationFrame(function(){
+            hideRealTabs();
+            initChip();
+            updateChipLabel();
+            reveal();
+          });
         });
-        return;
       }
-      // 使用者記住的本來就是「正在消耗」（預設值），照原本的點擊走就好，
-      // 反正結果一樣，不需要攔截。
+      return; // 不再往下掉到給「離開物資管理」用的 fallback 區塊，避免重複處理
     }
     // 離開物資管理畫面期間，濾鏡在其他頁面上沒有意義，先標記成未套用；
     // 但 selectedOption（使用者的選擇）刻意保留不動，這就是「記住」的關鍵。
