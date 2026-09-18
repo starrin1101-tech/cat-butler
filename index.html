@@ -4354,6 +4354,67 @@ document.getElementById('pd-edit-btn').onclick=()=>{
 </script>
 
 <script>
+// ══════════════════════════════════════════════════════════════
+// 🛡️ 數字輸入框滾輪防護：
+//   - 聚焦時：滾輪專心用來調整數值，網頁絕對不會跟著捲動。
+//   - 沒聚焦時：滾輪完全不干預，正常捲動網頁。
+//
+// 用事件代理（在 document 上監聽，而不是一個一個找輸入框綁）：
+// 這樣不管是主畫面的表單、彈出視窗，還是隨機配餐面板裡的輸入框，
+// 甚至之後任何新增、動態產生的數字輸入框，都能一次涵蓋到，不用
+// 每個地方各自處理一次。
+// ══════════════════════════════════════════════════════════════
+(function(){
+  'use strict';
+
+  // 取得原生的 value setter（跳過 React 對 <input> 的攔截），確保用 JS 改
+  // 值之後，不管是 React 控制的輸入框、還是我們自己寫的一般表單，都能正確
+  // 觸發後續的 input/change 事件，讓對應的狀態一起更新，而不是畫面看起來
+  // 變了、但底層資料沒有真的跟著改。
+  var nativeValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+
+  function decimalPlacesOf(numStr){
+    if(!numStr || numStr.indexOf('.')===-1) return 0;
+    return numStr.split('.')[1].length;
+  }
+
+  document.addEventListener('wheel', function(e){
+    var t = e.target;
+    if(!(t && t.tagName === 'INPUT' && t.type === 'number')) return;
+    if(document.activeElement !== t) return; // 沒聚焦就完全不干預，滾輪照常捲動頁面
+
+    // 聚焦時：完全擋掉頁面捲動，但數值調整不能跟著被擋掉——所以這裡不能只
+    // 靠 e.preventDefault() 了事（瀏覽器把「頁面捲動」跟「滾輪改數字」這個
+    // 怪癖綁在同一個預設行為上，擋掉其中一個會連另一個也一起沒了）。
+    // 改成自己接管：先攔下這次事件（頁面保證不會動），再照著滾動方向、
+    // 依 step/min/max 手動算出新的數值寫回去。
+    e.preventDefault();
+
+    var stepAttr = t.getAttribute('step');
+    var step = parseFloat(stepAttr);
+    if(!isFinite(step) || step<=0) step = 1;
+    var min = t.min !== '' ? parseFloat(t.min) : -Infinity;
+    var max = t.max !== '' ? parseFloat(t.max) : Infinity;
+    var cur = parseFloat(t.value);
+    if(!isFinite(cur)) cur = 0;
+
+    var dir = e.deltaY < 0 ? 1 : (e.deltaY > 0 ? -1 : 0);
+    if(dir === 0) return; // 極少數水平滾輪或 deltaY===0 的情況，不做任何事
+
+    var next = cur + dir*step;
+    next = Math.min(max, Math.max(min, next));
+    var places = decimalPlacesOf(stepAttr);
+    next = places>0 ? parseFloat(next.toFixed(places)) : Math.round(next);
+    if(next === cur) return; // 已經到 min/max，避免發出不必要的事件
+
+    nativeValueSetter.call(t, String(next));
+    t.dispatchEvent(new Event('input', { bubbles: true }));
+    t.dispatchEvent(new Event('change', { bubbles: true }));
+  }, { passive: false, capture: true });
+})();
+</script>
+
+<script>
 // ===== PWA: 註冊 Service Worker（讓網頁可安裝、離線也能開） =====
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', function () {
