@@ -822,7 +822,7 @@ const J4=[{value:"🐱",label:"🐱 貓咪"},{value:"🐶",label:"🐶 狗狗"},
         </div>
       </div>
       <div id="cat-loader-dots"><span></span><span></span><span></span></div>
-      <div id="cat-loader-version">v1.0</div>
+      <div id="cat-loader-version">v1.1</div>
     </div>
     <style>
       #cat-loader-version{
@@ -3419,6 +3419,9 @@ document.getElementById('pd-edit-btn').onclick=()=>{
     const d=new Date(dateStr+'T00:00:00'); d.setDate(d.getDate()+n);
     return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
   }
+  function daysBetween(fromStr,toStr){
+    return Math.round((new Date(toStr+'T00:00:00')-new Date(fromStr+'T00:00:00'))/86400000);
+  }
   function weekdayLabel(dateStr){
     const wd=['日','一','二','三','四','五','六'][new Date(dateStr+'T00:00:00').getDay()];
     return '週'+wd;
@@ -3432,7 +3435,15 @@ document.getElementById('pd-edit-btn').onclick=()=>{
       const gramsPerUnit=parseFloat(cfg.gramsPerUnit);
       const daysPerUnitRaw=parseFloat(cfg.daysPerUnit);
       const units=remainingUnits(it);
-      const blockLen=(!isNaN(daysPerUnitRaw)&&daysPerUnitRaw>0) ? Math.max(1,Math.round(daysPerUnitRaw)) : 0;
+      // 注意：這裡以前沒填「1罐/包連續吃幾天」時會退回 0，而不是一個有意義的
+      // 天數。0 天聽起來人畜無害，實際上會讓下面的排程演算法每一輪「瞬間吃掉
+      // 一罐」卻完全不佔用任何一天的行事曆時間（因為要連續吃的天數是 0 天），
+      // 導致這個品項的整批庫存，在還沒真正出現在畫面上之前，就已經在背景被
+      // 靜悄悄地瞬間吃光——結果就是這個品項明明勾選了、效期也還很久，卻完全
+      // 沒有出現在產生的菜單裡，跟到期日或優先權排序完全無關，純粹是因為
+      // 「沒填連續吃幾天」這個資料缺陷。改成沒填的話至少當作「連續吃 1 天」，
+      // 這才是合理、不會讓品項憑空消失的安全預設值。
+      const blockLen=(!isNaN(daysPerUnitRaw)&&daysPerUnitRaw>0) ? Math.max(1,Math.round(daysPerUnitRaw)) : 1;
       return {id:String(id), name:it.name, grams:isNaN(gramsPerUnit)?0:gramsPerUnit, units, blockLen, expiry:it.expiry||''};
     }).filter(Boolean);
 
@@ -3483,9 +3494,27 @@ document.getElementById('pd-edit-btn').onclick=()=>{
   // 排程邏輯：同一罐開封後會「連續吃完」整個 blockLen 天數才換下一罐，
   // 不會被拆成不連續的幾天（避免開封後放太久壞掉）。
   // remainingUnits：剩幾罐可用；lastEndDay：上一次吃這項物資「吃到的最後一天」（day index）。
-  function generateSchedule(selected,cooldown,startDateStr,horizonDays){
-    const stockLeft={}, lastEndDay={};
-    selected.forEach(it=>{ stockLeft[it.id]=it.units; lastEndDay[it.id]=-Infinity; });
+  function generateSchedule(selectedRaw,cooldown,startDateStr,horizonDays){
+    // 防呆：blockLen（連續吃幾天）如果是 0 或負數，會讓下面的排程迴圈把一整批
+    // 庫存在同一天內瞬間「吃光」卻完全不佔用行事曆天數，導致這個品項整個從
+    // 產生的菜單裡憑空消失。這裡強制限制在至少 1 天，不管是從哪裡傳進來的
+    // 資料，都不會再觸發這個問題。
+    const selected=selectedRaw.map(it=> Object.assign({}, it, { blockLen: Math.max(1, Math.round(it.blockLen)||1) }));
+    const stockLeft={}, lastEndDay={}, daysServed={}, totalNeedDays={}, windowDays={}, idealPace={};
+    selected.forEach(it=>{
+      stockLeft[it.id]=it.units; lastEndDay[it.id]=-Infinity; daysServed[it.id]=0;
+      // 依「原始庫存」算出的總天數，作為公平輪替的基準，不會因為庫存被吃掉而縮水。
+      totalNeedDays[it.id]=it.units*it.blockLen;
+      // 這個品項『總共可以運用的日曆天數』：有效期的話是到期日跟起始日之間的
+      // 天數，沒效期就用整個排程天數。這是「鋪開步調」的分母——只用在「安全
+      // 無虞」的品項身上，讓它們的消耗步調拉開、鋪滿自己真正擁有的整段時間，
+      // 而不是被隨機輪替早早抽完，看起來像「提早用完」。真正緊迫的品項還是
+      // 走已經驗證過安全的「寬裕天數 + 最短 blockLen 優先填空檔」那套邏輯，
+      // 不會被這裡影響。
+      const w = it.expiry ? Math.max(1, Math.min(horizonDays, daysBetween(startDateStr, it.expiry))) : horizonDays;
+      windowDays[it.id]=w;
+      idealPace[it.id]=totalNeedDays[it.id]/w; // 每天「理論上」應該累積服務多少天份
+    });
     const schedule=[];
     let day=0;
     let guard=0; // 安全閥，避免極端設定造成無窮迴圈
@@ -3515,7 +3544,7 @@ document.getElementById('pd-edit-btn').onclick=()=>{
       const scored=feasible.map(it=>{
         const daysLeftToExpiry = it.expiry ? Math.round((new Date(it.expiry+'T00:00:00')-new Date(dateStr+'T00:00:00'))/86400000) : Infinity;
         const neededDays = stockLeft[it.id]*it.blockLen + Math.max(0,stockLeft[it.id]-1)*cooldown;
-        return {it, slack: daysLeftToExpiry-neededDays};
+        return {it, slack: daysLeftToExpiry-neededDays, neededDays: neededDays};
       });
       const strictIds=new Set(selected.filter(it=>eligible(it,false)).map(it=>it.id));
       const strictScored=scored.filter(s=>strictIds.has(s.it.id));
@@ -3535,37 +3564,88 @@ document.getElementById('pd-edit-btn').onclick=()=>{
         if(tier.length===1) return tier[0].it;
         return weightedPick(tier, tier.map(s=> isFinite(keyFn(s)-minKey) ? 1/(1+(keyFn(s)-minKey)) : 1)).it;
       }
+      // 「鋪開步調」挑法：不看到期壓力（已確認很安全），而是看「這個品項有沒有
+      // 跟上它自己該有的鋪開步調」——用它總共可以運用的天數（到期日或整個排程
+      // 天數）當分母，算出到今天為止「理論上」該服務多少天，減掉「實際已經服務
+      // 多少天」，得到落後的天數。
+      //
+      // 這裡不能用「相對自己總需求量的完成比例」來排優先順序（更早之前的做法）：
+      // 那樣的話，總需求量小的品項（例如庫存少、或每罐吃的天數短）會用同樣的
+      // 「相對速度」很快衝到 100% 完成，看起來就像「效期明明還很遠，卻被提早
+      // 用完」——因為它的『終點』本來就比較近，均速前進反而最先抵達終點。
+      //
+      // 但也不能直接拿「落後的絕對天數」互相比較（上一版的做法）：這樣反過來
+      // 會變成總需求量大的品項（例如需要 60 天才吃完的）永遠贏過總需求量小的
+      // 品項（例如只需要 4 天）——即使兩者「相對於自己」都一樣落後了一半進度，
+      // 絕對天數上大品項的落後量看起來永遠比較嚴重，結果就是排程後段一路只看
+      // 得到那一兩樣總需求特別大的品項，其他明明也該輪到的品項完全沒被排到。
+      //
+      // 正確做法是把「落後的天數」除以「這個品項自己的總需求量」，算出「落後
+      // 了自己總進度的百分之幾」——這樣不管總需求量差多少，都能公平比較誰
+      // 「相對於自己」落後得比較嚴重，天數才會真正平均鋪在每個品項各自擁有的
+      // 時間軸上，讓所有勾選的品項都有機會被排進去，而不是只集中在少數幾樣。
+      function pickSpreadOut(pool){
+        const behindRatioOf=s=>{
+          const idealCumulative=idealPace[s.it.id]*Math.min(day, windowDays[s.it.id]);
+          const deficit=idealCumulative - daysServed[s.it.id];
+          return totalNeedDays[s.it.id]>0 ? deficit/totalNeedDays[s.it.id] : 0;
+        };
+        const maxRatio=Math.max.apply(null, pool.map(behindRatioOf));
+        const band=0.08; // 落後比例差在 8 個百分點以內都算「差不多落後」，一起排入隨機池
+        const tier=pool.filter(s=>behindRatioOf(s)>=maxRatio-band);
+        if(tier.length===1) return tier[0].it;
+        return weightedPick(tier, tier.map(s=> isFinite(maxRatio-behindRatioOf(s)) ? 1/(1+(maxRatio-behindRatioOf(s))*10) : 1)).it;
+      }
 
       // 全域最急迫的品項是誰（不管它今天有沒有在冷卻中）——這才是真正決定
       // 「該不該讓其他品項插隊」的依據，而不是只看「今天沒在冷卻中的裡面」
       // 誰最急迫（那樣會讓填空檔的選擇跟著被「當下矮子裡拔將軍」誤導）。
       const globalMinSlack=Math.min.apply(null, scored.map(s=>s.slack));
       const globalTopAvailableToday=scored.some(s=>s.slack===globalMinSlack && strictIds.has(s.it.id));
+      // 「寬裕比例」= 寬裕天數 ÷ 還需要天數，用比例而不是絕對天數當作「這個
+      // 品項到底急不急」的判斷依據——因為同樣是「還剩 21 天緩衝」，在只有兩
+      // 三樣品項互相競爭時可能綽綽有餘，但在好幾樣品項互相搶行事曆空間時，
+      // 可能反而是命懸一線。比例才能反映「相對於這個品項自己真正要花的時間，
+      // 到底還有多少緩衝」，不管情境規模大小都適用同一個判斷標準。
+      const RATIO_THRESHOLD=1.0; // 寬裕天數至少要達到「還需要天數」的等量緩衝，才算真的沒有到期壓力
+      const globalMinRatio=Math.min.apply(null, scored.map(s=> s.neededDays>0 ? s.slack/s.neededDays : Infinity));
 
       let chosen, relaxed;
       if(strictScored.length===0){
         // 所有品項今天都剛好在冷卻中，真的沒得選，不得已放寬間隔限制。
         chosen=pickWithSafeRandomBand(scored, s=>s.slack);
         relaxed=true;
-      }else if(globalTopAvailableToday){
-        // 全域最急迫的品項今天就能排，直接排它，不用考慮填空檔的問題。
-        chosen=pickWithSafeRandomBand(strictScored, s=>s.slack);
+      }else if(globalMinRatio<=RATIO_THRESHOLD){
+        // 有品項的緩衝已經不夠寬裕，安全優先：跟之前一樣，盡快把最急迫的
+        // 品項排進去，被迫填空檔時也優先挑 blockLen 最短的候選。
+        if(globalTopAvailableToday){
+          chosen=pickWithSafeRandomBand(strictScored, s=>s.slack);
+        }else{
+          // 被迫填空檔：候選集合先限縮到「不會浪費行事曆空間」的最短 blockLen
+          // 品項，安全性由這一步保證。但「這些候選裡面到底選誰」不能再用
+          // slack 最小當依據——那樣的話，庫存充足、其他同天數品項常常斷貨
+          // 或剛好在冷卻中的「萬用安全牌」（例如肉球世界：效期很遠、隨時能
+          // 頂上去），會被反覆徵召來填空檔，早早被榨乾，即使它自己完全不急。
+          // 改成用「鋪開步調」（跟寬裕情境同一套邏輯）挑選，讓填空檔的機會
+          // 也公平分散給所有符合條件的候選，而不是每次都挑同一個。
+          const minBlockLen=Math.min.apply(null, strictScored.map(s=>s.it.blockLen));
+          const shortestPool=strictScored.filter(s=>s.it.blockLen===minBlockLen);
+          chosen=pickSpreadOut(shortestPool);
+        }
         relaxed=false;
       }else{
-        // 全域最急迫的品項今天正在冷卻中，這是「被迫要排別的來填空檔」的情況。
-        // 這裡是關鍵修正：不能直接挑「今天可選裡面 slack 最小」的，那樣很容易
-        // 選到一個 blockLen 很大的品項（例如一罐要連續吃 4 天），平白多佔用
-        // 好幾天原本只需要 1 天空檔就能補上的行事曆時間，反而把真正最急迫的
-        // 品項越拖越緊迫，最後真的來不及吃完。改成優先從 blockLen 最短的候選
-        // 裡挑，用最少的天數補滿這個空檔，盡快把行事曆空間還給最急迫的品項；
-        // blockLen 相同時才用 slack 決定優先順序。
-        const minBlockLen=Math.min.apply(null, strictScored.map(s=>s.it.blockLen));
-        const shortestPool=strictScored.filter(s=>s.it.blockLen===minBlockLen);
-        chosen=pickWithSafeRandomBand(shortestPool, s=>s.slack);
+        // 全部品項都還很寬裕、沒有迫切的到期壓力：改成鋪開步調，讓每個品項
+        // 依照自己「應該用掉的鋪開進度」平均往前推進，達到真正的輪替效果，
+        // 而不是把最急迫的那個吃到完才換下一個——這正是「隨機配餐」這個
+        // 功能名稱裡「輪替」兩個字該有的行為。隨著天數過去，任何品項的寬裕
+        // 比例一旦降到門檻以下（開始真的有壓力），下一輪就會自動切回安全
+        // 優先模式，不會因為忙著輪替而讓任何品項真的來不及吃完。
+        chosen=pickSpreadOut(strictScored);
         relaxed=false;
       }
       const blockLen=Math.min(chosen.blockLen, horizonDays-day);
       stockLeft[chosen.id]--;
+      daysServed[chosen.id]+=blockLen;
       const finished = stockLeft[chosen.id]<=0; // 這罐吃完後，這個品項就沒庫存了
       for(let k=0;k<blockLen;k++){
         schedule.push({date:addDaysStr(startDateStr,day+k),item:chosen,relaxed:relaxed,finished:finished && k===blockLen-1});
@@ -4459,7 +4539,7 @@ if ('serviceWorker' in navigator) {
 // ══════════════════════════════════════════════════════════════
 (function(){
   'use strict';
-  var APP_VERSION='v1.0';
+  var APP_VERSION='v1.1';
 
   window.__CAT_APP_VERSION=APP_VERSION;
 
