@@ -822,7 +822,7 @@ const J4=[{value:"🐱",label:"🐱 貓咪"},{value:"🐶",label:"🐶 狗狗"},
         </div>
       </div>
       <div id="cat-loader-dots"><span></span><span></span><span></span></div>
-      <div id="cat-loader-version">v1.1</div>
+      <div id="cat-loader-version">v1.2</div>
     </div>
     <style>
       #cat-loader-version{
@@ -3349,6 +3349,16 @@ document.getElementById('pd-edit-btn').onclick=()=>{
       const units=remainingUnits(it);
       const hintEl=row.querySelector('.fp-item-total-hint');
       if(hintEl){
+        // 注意：dInp 要在這個函式自己的範圍內重新取得，不能借用呼叫端（例如
+        // 勾選事件處理器）裡的區域變數——那個變數只存在於呼叫端自己的區塊裡，
+        // 這裡是獨立的函式，根本存取不到，直接引用會丟出
+        // 「ReferenceError: dInp is not defined」。
+        // 這正是「新增品項後第一次勾選只打勾、沒展開填寫欄位」的真正原因：
+        // 第一次勾選全新品項時會呼叫到這個函式，例外會中斷同一個事件處理器
+        // 裡「顯示設定區塊」那行程式碼（在它後面才執行，來不及跑到）；
+        // 取消勾選再勾一次，因為這次不會再進到會呼叫這個函式的分支，
+        // 不會再出錯，「顯示設定區塊」那行才總算執行到，看起來才會展開。
+        const dInp=row.querySelector('[data-role="fp-days"]');
         const d=parseFloat(dInp?dInp.value:'');
         hintEl.textContent=totalHintText(units,unitLabel,dInp?dInp.value:'');
         hintEl.classList.toggle('warn', isNaN(d)||d<=0);
@@ -4539,7 +4549,7 @@ if ('serviceWorker' in navigator) {
 // ══════════════════════════════════════════════════════════════
 (function(){
   'use strict';
-  var APP_VERSION='v1.1';
+  var APP_VERSION='v1.2';
 
   window.__CAT_APP_VERSION=APP_VERSION;
 
