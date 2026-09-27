@@ -822,7 +822,7 @@ const J4=[{value:"🐱",label:"🐱 貓咪"},{value:"🐶",label:"🐶 狗狗"},
         </div>
       </div>
       <div id="cat-loader-dots"><span></span><span></span><span></span></div>
-      <div id="cat-loader-version">v1.2</div>
+      <div id="cat-loader-version">v1.3</div>
     </div>
     <style>
       #cat-loader-version{
@@ -2941,12 +2941,23 @@ document.getElementById('pd-edit-btn').onclick=()=>{
 .dark .fp-item-total-hint.warn{color:#fbbf24;background:#2a2013;border-color:#4a3a12;}
 .fp-item-empty{font-size:14px;color:#9a9aa5;text-align:center;padding:22px 0;}
 .fp-settings-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;}
+.fp-mode-toggle{display:flex;gap:8px;margin-bottom:12px;}
+.fp-mode-btn{
+  flex:1;padding:9px 10px;border-radius:10px;border:1.5px solid #e9d5ff;background:#fff;
+  color:#71717a;font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit;
+  transition:all .15s;
+}
+.fp-mode-btn.active{background:#8b5cf6;border-color:#8b5cf6;color:#fff;}
+.dark .fp-mode-btn{background:#27272a;border-color:#3f3f46;color:#a1a1aa;}
+.dark .fp-mode-btn.active{background:#8b5cf6;border-color:#8b5cf6;color:#fff;}
 .fp-field label{display:block;font-size:12px;font-weight:700;color:#8b5cf6;margin-bottom:5px;}
 .fp-field input{
   width:100%;box-sizing:border-box;border:1.5px solid #e9d5ff;border-radius:10px;padding:9px 11px;
   font-size:14.5px;font-weight:600;background:#fff;color:#18181b;outline:none;font-family:inherit;
 }
 .dark .fp-field input{background:#27272a;color:#f4f4f5;border-color:#3f3f46;}
+.fp-end-date-hint{margin:6px 2px 0;font-size:11px;font-weight:500;font-style:italic;color:#a1a1aa;letter-spacing:.01em;}
+.dark .fp-end-date-hint{color:#71717a;}
 #fp-generate-btn{
   width:100%;margin-top:4px;padding:14px;border:none;border-radius:14px;cursor:pointer;
   background:linear-gradient(135deg,#a78bfa,#6d28d9);color:#fff;font-size:16px;font-weight:800;
@@ -3072,6 +3083,7 @@ document.getElementById('pd-edit-btn').onclick=()=>{
     cooldown:3,
     startDate:todayStr(),
     horizonDays:14,
+    mode:'rotate',           // 'rotate'=分散輪替型（原本邏輯）；'block'=同系列一次排完
     autoSyncedIds:{}         // {id:true} 曾經被「自動同步」勾選過的物資，避免手動取消後又被強制勾回來
   };
   let lastSchedule=null;
@@ -3192,6 +3204,9 @@ document.getElementById('pd-edit-btn').onclick=()=>{
     loadState();
     renderBody();
     page.classList.add('open');
+    // 每個頁籤的捲動位置應該各自獨立：物資管理頁面本身有沒有捲動過，
+    // 不該影響切進來的隨機配餐面板一開始要顯示在哪裡，一律從最上方開始看。
+    window.scrollTo(0,0);
     setNavBtnActive(true);
     // React 完全不知道我們切換了畫面，它記憶中「選中的頁籤」不會變，
     // 所以要手動把目前顯示反白的那個真正頁籤按鈕改成未選中樣式，
@@ -3207,6 +3222,9 @@ document.getElementById('pd-edit-btn').onclick=()=>{
     const main=document.querySelector('main');
     if(page) page.classList.remove('open');
     if(main) main.style.display='';
+    // 切回原本頁籤時，捲動位置也重設回最上方，不要延用剛才在隨機配餐面板
+    // 裡捲到的位置——每個頁籤的捲動進度應該是各自獨立的。
+    window.scrollTo(0,0);
     setNavBtnActive(false);
     const resultOv=document.getElementById('fp-result-overlay');
     if(resultOv) resultOv.classList.remove('open');
@@ -3294,12 +3312,18 @@ document.getElementById('pd-edit-btn').onclick=()=>{
         '<div id="fp-col-right">'+
           '<div class="fp-sec">'+
             '<p class="fp-sec-title">⚙️ 排程設定</p>'+
-            '<div class="fp-settings-grid">'+
-              '<div class="fp-field"><label>最少間隔幾天</label><input type="number" min="0" step="1" id="fp-cooldown" value="'+state.cooldown+'" /></div>'+
-              '<div class="fp-field"><label>從哪天開始</label><input type="date" id="fp-startdate" value="'+state.startDate+'" /></div>'+
-              '<div class="fp-field"><label>要排幾天</label><input type="number" min="1" max="730" step="1" id="fp-horizon" value="'+state.horizonDays+'" /></div>'+
+            '<div class="fp-mode-toggle" id="fp-mode-toggle">'+
+              '<button type="button" class="fp-mode-btn'+(state.mode==='rotate'?' active':'')+'" data-mode="rotate">🔀 分散輪替型</button>'+
+              '<button type="button" class="fp-mode-btn'+(state.mode==='block'?' active':'')+'" data-mode="block">📦 同系列一次排完</button>'+
             '</div>'+
-            '<p class="fp-hint">同一罐開封後會「連續吃完」才換下一罐（不會拆成不連續的幾天）。「最少間隔幾天」是指這罐吃完後，至少要隔幾天才會再輪到同一項物資（例如設 3，代表罐頭A吃完後至少要等 3 天才會再輪到）。</p>'+
+            '<div class="fp-settings-grid">'+
+              '<div class="fp-field" id="fp-cooldown-field" style="'+(state.mode==='block'?'display:none;':'')+'"><label>最少間隔幾天</label><input type="number" min="0" step="1" id="fp-cooldown" value="'+state.cooldown+'" /></div>'+
+              '<div class="fp-field"><label>從哪天開始</label><input type="date" id="fp-startdate" min="2000-01-01" max="2099-12-31" value="'+state.startDate+'" /></div>'+
+              '<div class="fp-field"><label>要排幾天</label><input type="number" min="1" max="730" step="1" id="fp-horizon" value="'+state.horizonDays+'" /><p id="fp-end-date-hint" class="fp-end-date-hint"></p></div>'+
+            '</div>'+
+            '<p class="fp-hint" id="fp-mode-hint">'+(state.mode==='block'
+              ? '「同系列一次排完」：每個品項會把剩餘庫存整批排成一個連續區塊（例如剩 18 罐、每罐吃 2 天，就是一個連續 36 天的區塊），中途不穿插其他品項；這個區塊要排在行事曆的哪個位置是隨機決定的，但一定會完整落在到期日之前，也會優先照顧效期比較緊的品項。'
+              : '同一罐開封後會「連續吃完」才換下一罐（不會拆成不連續的幾天）。「最少間隔幾天」是指這罐吃完後，至少要隔幾天才會再輪到同一項物資（例如設 3，代表罐頭A吃完後至少要等 3 天才會再輪到）。')+'</p>'+
           '</div>'+
           '<button type="button" id="fp-generate-btn">🎲 產生隨機菜單</button>'+
           (lastSchedule ? '<div id="fp-result-hint-row"><button type="button" id="fp-view-result-btn">📋 查看上次產生的菜單</button></div>' : '')+
@@ -3307,6 +3331,15 @@ document.getElementById('pd-edit-btn').onclick=()=>{
       '</div>';
 
     // 事件綁定
+    body.querySelectorAll('.fp-mode-btn').forEach(btn=>{
+      btn.addEventListener('click', function(){
+        const m=btn.getAttribute('data-mode');
+        if(m===state.mode) return;
+        state.mode=m;
+        saveState();
+        renderBody();
+      });
+    });
     body.querySelectorAll('.fp-chip').forEach(btn=>{
       btn.addEventListener('click', function(){
         state.filterCat=btn.getAttribute('data-cat');
@@ -3404,9 +3437,39 @@ document.getElementById('pd-edit-btn').onclick=()=>{
     const cdInp=document.getElementById('fp-cooldown');
     if(cdInp) cdInp.addEventListener('input', function(){ state.cooldown=parseInt(cdInp.value||'0',10)||0; saveState(); });
     const sdInp=document.getElementById('fp-startdate');
-    if(sdInp) sdInp.addEventListener('input', function(){ state.startDate=sdInp.value||todayStr(); saveState(); });
     const hzInp=document.getElementById('fp-horizon');
-    if(hzInp) hzInp.addEventListener('input', function(){ state.horizonDays=Math.max(1,Math.min(730,parseInt(hzInp.value||'14',10)||14)); saveState(); });
+    const endHint=document.getElementById('fp-end-date-hint');
+    // 算出「從哪天開始」+「要排幾天」實際會排到哪一天，顯示在「要排幾天」
+    // 輸入框下方，讓使用者不用自己拿日曆去推算結束日期。
+    function updateEndDateHint(){
+      if(!endHint) return;
+      const sd=(sdInp&&sdInp.value) ? sdInp.value : state.startDate;
+      const hz=Math.max(1, parseInt((hzInp&&hzInp.value)||state.horizonDays,10)||1);
+      if(!sd){ endHint.textContent=''; return; }
+      const endDateStr=addDaysStr(sd, hz-1);
+      endHint.textContent='📅 預計排到 '+endDateStr.replace(/-/g,'/');
+    }
+    if(sdInp) sdInp.addEventListener('input', function(){
+      // 防呆：<input type="date"> 手動打字輸入年份時，部分瀏覽器在切到月份
+      // 欄位之前可以一直打超過 4 位數，容易打錯、也可能造成日期解析異常。
+      // 年份理論上就是 4 位數，這裡強制檢查：只要年份超過 4 位數（或整個值
+      // 解析不出合理日期），就直接忽略這次輸入、不更新狀態，等使用者輸入
+      // 完整合理的日期為止（min/max 屬性也會讓瀏覽器原生擋掉超出範圍的值）。
+      const v=sdInp.value||'';
+      const yearPart=v.split('-')[0]||'';
+      if(yearPart.length>4 || !/^\d{4}-\d{2}-\d{2}$/.test(v)){
+        return; // 年份位數異常或格式不完整，先不更新，避免存進去一個錯誤日期
+      }
+      state.startDate=v||todayStr();
+      saveState();
+      updateEndDateHint();
+    });
+    if(hzInp) hzInp.addEventListener('input', function(){
+      state.horizonDays=Math.max(1,Math.min(730,parseInt(hzInp.value||'14',10)||14));
+      saveState();
+      updateEndDateHint();
+    });
+    updateEndDateHint(); // 畫面剛渲染出來時也要先算一次，不用等使用者動手才顯示
 
     const genBtn=document.getElementById('fp-generate-btn');
     if(genBtn) genBtn.addEventListener('click', function(){ runGenerate(inv); });
@@ -3471,7 +3534,9 @@ document.getElementById('pd-edit-btn').onclick=()=>{
       alert('「'+invalid.map(x=>x.name).join('、')+'」還沒填寫「1罐連續吃幾天」，請補上再產生菜單。');
       return;
     }
-    const schedule=generateSchedule(selected, state.cooldown, state.startDate, state.horizonDays);
+    const schedule = state.mode==='block'
+      ? generateBlockSchedule(selected, state.startDate, state.horizonDays)
+      : generateSchedule(selected, state.cooldown, state.startDate, state.horizonDays);
     const totalSupplyDays=selected.reduce((s,it)=>s+it.units*it.blockLen,0);
     lastSchedule=schedule;
     lastTotalSupplyDays=totalSupplyDays;
@@ -3510,20 +3575,12 @@ document.getElementById('pd-edit-btn').onclick=()=>{
     // 產生的菜單裡憑空消失。這裡強制限制在至少 1 天，不管是從哪裡傳進來的
     // 資料，都不會再觸發這個問題。
     const selected=selectedRaw.map(it=> Object.assign({}, it, { blockLen: Math.max(1, Math.round(it.blockLen)||1) }));
-    const stockLeft={}, lastEndDay={}, daysServed={}, totalNeedDays={}, windowDays={}, idealPace={};
+    const stockLeft={}, lastEndDay={}, daysServed={}, totalNeedDays={};
     selected.forEach(it=>{
       stockLeft[it.id]=it.units; lastEndDay[it.id]=-Infinity; daysServed[it.id]=0;
-      // 依「原始庫存」算出的總天數，作為公平輪替的基準，不會因為庫存被吃掉而縮水。
+      // 依「原始庫存」算出的總天數，用在「鋪開步調」判斷這個品項目前已經
+      // 完成了多少比例，不會因為庫存被吃掉而縮水。
       totalNeedDays[it.id]=it.units*it.blockLen;
-      // 這個品項『總共可以運用的日曆天數』：有效期的話是到期日跟起始日之間的
-      // 天數，沒效期就用整個排程天數。這是「鋪開步調」的分母——只用在「安全
-      // 無虞」的品項身上，讓它們的消耗步調拉開、鋪滿自己真正擁有的整段時間，
-      // 而不是被隨機輪替早早抽完，看起來像「提早用完」。真正緊迫的品項還是
-      // 走已經驗證過安全的「寬裕天數 + 最短 blockLen 優先填空檔」那套邏輯，
-      // 不會被這裡影響。
-      const w = it.expiry ? Math.max(1, Math.min(horizonDays, daysBetween(startDateStr, it.expiry))) : horizonDays;
-      windowDays[it.id]=w;
-      idealPace[it.id]=totalNeedDays[it.id]/w; // 每天「理論上」應該累積服務多少天份
     });
     const schedule=[];
     let day=0;
@@ -3574,50 +3631,62 @@ document.getElementById('pd-edit-btn').onclick=()=>{
         if(tier.length===1) return tier[0].it;
         return weightedPick(tier, tier.map(s=> isFinite(keyFn(s)-minKey) ? 1/(1+(keyFn(s)-minKey)) : 1)).it;
       }
-      // 「鋪開步調」挑法：不看到期壓力（已確認很安全），而是看「這個品項有沒有
-      // 跟上它自己該有的鋪開步調」——用它總共可以運用的天數（到期日或整個排程
-      // 天數）當分母，算出到今天為止「理論上」該服務多少天，減掉「實際已經服務
-      // 多少天」，得到落後的天數。
+      // 「鋪開步調」挑法：不看「是否已經逼近到期」（那是安全分支的事，這裡的
+      // 候選都已經確認很安全），而是要決定「這些同樣安全的品項裡，這一次
+      // 該優先排誰」，同時兼顧兩件事：
       //
-      // 這裡不能用「相對自己總需求量的完成比例」來排優先順序（更早之前的做法）：
-      // 那樣的話，總需求量小的品項（例如庫存少、或每罐吃的天數短）會用同樣的
-      // 「相對速度」很快衝到 100% 完成，看起來就像「效期明明還很遠，卻被提早
-      // 用完」——因為它的『終點』本來就比較近，均速前進反而最先抵達終點。
+      //   1. 這個品項『與生俱來』的緊繃程度：用安全分支同一套
+      //      slack ÷ neededDays 比例（數字越小代表越緊繃）。這是關鍵修正——
+      //      舊版只看「已經落後了多少」，但排程剛開始的第一天（day=0），
+      //      每個品項都還沒機會落後，這個數字對誰來說都一樣是 0，等於完全
+      //      沒有區分度，只能隨機亂猜，這正是「給了 1000 天，第一天卻排了
+      //      一個效期還很久的品項」的真正原因：那個當下，演算法根本看不出
+      //      誰比較該優先。改成一開始就參考「與生俱來」的緊繃程度，效期近、
+      //      庫存量大的品項從第一天就會被看出來比較緊繃，優先被排入。
       //
-      // 但也不能直接拿「落後的絕對天數」互相比較（上一版的做法）：這樣反過來
-      // 會變成總需求量大的品項（例如需要 60 天才吃完的）永遠贏過總需求量小的
-      // 品項（例如只需要 4 天）——即使兩者「相對於自己」都一樣落後了一半進度，
-      // 絕對天數上大品項的落後量看起來永遠比較嚴重，結果就是排程後段一路只看
-      // 得到那一兩樣總需求特別大的品項，其他明明也該輪到的品項完全沒被排到。
+      //   2. 這個品項目前已經完成的比例（已排入天數 ÷ 總共需要天數）：確保
+      //      不會因為某個品項天生比較緊繃，就一路把它排到完、中途完全排不到
+      //      別人。隨著它被排入的次數增加，完成比例拉高，優先權自然讓給
+      //      其他還沒開始、或進度落後的品項，達到真正的鋪開輪替效果。
       //
-      // 正確做法是把「落後的天數」除以「這個品項自己的總需求量」，算出「落後
-      // 了自己總進度的百分之幾」——這樣不管總需求量差多少，都能公平比較誰
-      // 「相對於自己」落後得比較嚴重，天數才會真正平均鋪在每個品項各自擁有的
-      // 時間軸上，讓所有勾選的品項都有機會被排進去，而不是只集中在少數幾樣。
+      // 兩者相乘（完成比例故意加一個小的基準值，確保就算完成度是 0，
+      // 緊繃程度的差異也不會被乘成 0 而完全失去作用），分數越低代表越該
+      // 優先排入。
       function pickSpreadOut(pool){
-        const behindRatioOf=s=>{
-          const idealCumulative=idealPace[s.it.id]*Math.min(day, windowDays[s.it.id]);
-          const deficit=idealCumulative - daysServed[s.it.id];
-          return totalNeedDays[s.it.id]>0 ? deficit/totalNeedDays[s.it.id] : 0;
+        const scoreOf=s=>{
+          const completion=daysServed[s.it.id]/(totalNeedDays[s.it.id]||1);
+          const tightness=isFinite(s.slack/s.neededDays) ? s.slack/s.neededDays : 999999;
+          return (completion+0.02)*tightness;
         };
-        const maxRatio=Math.max.apply(null, pool.map(behindRatioOf));
-        const band=0.08; // 落後比例差在 8 個百分點以內都算「差不多落後」，一起排入隨機池
-        const tier=pool.filter(s=>behindRatioOf(s)>=maxRatio-band);
+        const minScore=Math.min.apply(null, pool.map(scoreOf));
+        const band=Math.abs(minScore)*0.15+0.01; // 分數差在這個範圍內都算差不多，一起排入隨機池（用絕對值，避免 minScore 是負數時算出負的容許範圍，篩不到任何候選）
+        const tier=pool.filter(s=>scoreOf(s)<=minScore+band);
         if(tier.length===1) return tier[0].it;
-        return weightedPick(tier, tier.map(s=> isFinite(maxRatio-behindRatioOf(s)) ? 1/(1+(maxRatio-behindRatioOf(s))*10) : 1)).it;
+        return weightedPick(tier, tier.map(s=> isFinite(scoreOf(s)-minScore) ? 1/(1+(scoreOf(s)-minScore)*10) : 1)).it;
       }
 
-      // 全域最急迫的品項是誰（不管它今天有沒有在冷卻中）——這才是真正決定
-      // 「該不該讓其他品項插隊」的依據，而不是只看「今天沒在冷卻中的裡面」
-      // 誰最急迫（那樣會讓填空檔的選擇跟著被「當下矮子裡拔將軍」誤導）。
-      const globalMinSlack=Math.min.apply(null, scored.map(s=>s.slack));
-      const globalTopAvailableToday=scored.some(s=>s.slack===globalMinSlack && strictIds.has(s.it.id));
       // 「寬裕比例」= 寬裕天數 ÷ 還需要天數，用比例而不是絕對天數當作「這個
       // 品項到底急不急」的判斷依據——因為同樣是「還剩 21 天緩衝」，在只有兩
       // 三樣品項互相競爭時可能綽綽有餘，但在好幾樣品項互相搶行事曆空間時，
       // 可能反而是命懸一線。比例才能反映「相對於這個品項自己真正要花的時間，
       // 到底還有多少緩衝」，不管情境規模大小都適用同一個判斷標準。
       const RATIO_THRESHOLD=1.0; // 寬裕天數至少要達到「還需要天數」的等量緩衝，才算真的沒有到期壓力
+
+      // 全域最急迫的品項是誰（不管它今天有沒有在冷卻中）——這才是真正決定
+      // 「該不該讓其他品項插隊」的依據，而不是只看「今天沒在冷卻中的裡面」
+      // 誰最急迫。
+      //
+      // 這裡刻意不用「今天可排的候選裡有沒有任何一個急迫品項」來判斷，是因為
+      // 踩過一次坑：如果同時有兩個品項都算急迫（例如一個 2 天冷卻、一個 4 天
+      // 冷卻的都很趕），當「排名最急迫」的那個剛好在冷卻中，但另一個急迫品項
+      // 今天可以排，用「今天可排的裡面有沒有急迫品項」來判斷會直接讓後者用
+      // 它自己完整的（可能很長的）blockLen 去填前者的冷卻空檔——這樣還是會
+      // 平白浪費好幾天行事曆時間給一個本來只需要 1 天空檔就能補上的缺口，
+      // 等於重新引入更早之前修過的「用大區塊填小空檔」問題。改回只看「排名
+      // 最急迫的那一個」今天能不能排，能排就直接排它，不能排才進入專門保護
+      // 它行事曆空間的填空檔邏輯——不管清單裡還有沒有其他也算急迫的品項。
+      const globalMinSlack=Math.min.apply(null, scored.map(s=>s.slack));
+      const globalTopAvailableToday=scored.some(s=>s.slack===globalMinSlack && strictIds.has(s.it.id));
       const globalMinRatio=Math.min.apply(null, scored.map(s=> s.neededDays>0 ? s.slack/s.neededDays : Infinity));
 
       let chosen, relaxed;
@@ -3632,15 +3701,23 @@ document.getElementById('pd-edit-btn').onclick=()=>{
           chosen=pickWithSafeRandomBand(strictScored, s=>s.slack);
         }else{
           // 被迫填空檔：候選集合先限縮到「不會浪費行事曆空間」的最短 blockLen
-          // 品項，安全性由這一步保證。但「這些候選裡面到底選誰」不能再用
-          // slack 最小當依據——那樣的話，庫存充足、其他同天數品項常常斷貨
-          // 或剛好在冷卻中的「萬用安全牌」（例如肉球世界：效期很遠、隨時能
-          // 頂上去），會被反覆徵召來填空檔，早早被榨乾，即使它自己完全不急。
-          // 改成用「鋪開步調」（跟寬裕情境同一套邏輯）挑選，讓填空檔的機會
-          // 也公平分散給所有符合條件的候選，而不是每次都挑同一個。
+          // 品項，安全性由這一步保證。
+          //
+          // 「這些候選裡面到底選誰」不能再用緊繃程度分數挑——候選之間的緊繃
+          // 程度常常差距非常懸殊（例如一個效期沒那麼遠、一個效期遠到誇張），
+          // 數值可以差到十幾二十倍，不管容許範圍怎麼調寬都拉不近，結果變成
+          // 同一個「表面上最合適」的候選長期壟斷填空檔機會，「換一種排法」
+          // 按幾次結果都幾乎一樣。既然候選已經被限縮在安全範圍裡，選誰都
+          // 沒有風險，這裡改成單純看「誰被排入的次數比較少」，讓填空檔的
+          // 機會公平分散，不會每次都挑同一個。
           const minBlockLen=Math.min.apply(null, strictScored.map(s=>s.it.blockLen));
           const shortestPool=strictScored.filter(s=>s.it.blockLen===minBlockLen);
-          chosen=pickSpreadOut(shortestPool);
+          const completionOf=s=>daysServed[s.it.id]/(totalNeedDays[s.it.id]||1);
+          const minCompletion=Math.min.apply(null, shortestPool.map(completionOf));
+          const completionBand=0.1; // 服務進度差在 10 個百分點以內都算「差不多少被服務過」，一起排入隨機池
+          const leastServedTier=shortestPool.filter(s=>completionOf(s)<=minCompletion+completionBand);
+          chosen=(leastServedTier.length===1) ? leastServedTier[0].it :
+            weightedPick(leastServedTier, leastServedTier.map(s=> isFinite(completionOf(s)-minCompletion) ? 1/(1+(completionOf(s)-minCompletion)*10) : 1)).it;
         }
         relaxed=false;
       }else{
@@ -3676,6 +3753,97 @@ document.getElementById('pd-edit-btn').onclick=()=>{
         const lastDate=addDaysStr(startDateStr, Math.max(0,day-1));
         return x.expiry<=lastDate || x.expiry<=addDaysStr(startDateStr,horizonDays-1);
       });
+    schedule.expiredLeftover=expiredLeftover;
+    return schedule;
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // 「同系列一次排完」模式：每個品項的剩餘庫存視為一個完整連續區塊
+  // （例如剩 18 罐、每罐吃 2 天，就是一個連續 36 天的區塊），一次排入
+  // 行事曆、中途不穿插其他品項。隨機性展現在「這個區塊要落在自己可用的
+  // 時間窗裡的哪個位置」，而不是像分散輪替型那樣每天重新決定要排誰。
+  //
+  // 排法：
+  //   1. 依「寬裕天數」（可用時間窗長度 - 這個區塊需要的天數）由小到大排序，
+  //      越趕的品項（寬裕天數越少）優先幫它找位置——這樣行事曆還是空的時候，
+  //      就先幫最沒有轉圜餘地的品項卡好位子，不會因為晚一步處理，才發現
+  //      早被其他沒那麼趕的品項佔掉了關鍵的早期空檔。
+  //   2. 對每個品項，在它自己的可用時間窗（到期日或排程結束日之前）內，
+  //      找出所有「長度剛好等於區塊天數、且完全沒被其他已排定區塊佔用」的
+  //      合法起始位置，隨機選一個——這就是「隨機決定起始日」的來源。
+  //   3. 如果找不到剛好完整長度的空檔（行事曆已經被排得比較滿），退而求其次
+  //      找一段「最長的連續空檔」，能塞多少算多少，塞不下的部分算未完食，
+  //      一樣會出現在紅色警示裡，不會被默默漏掉。
+  // ══════════════════════════════════════════════════════════════
+  function generateBlockSchedule(selectedRaw, startDateStr, horizonDays){
+    const selected=selectedRaw.map(it=> Object.assign({}, it, { blockLen: Math.max(1, Math.round(it.blockLen)||1) }));
+    const occupied=new Array(horizonDays).fill(null); // null=空，否則放這一天被哪個品項的 id 佔用
+    const RATIO_THRESHOLD=1.0; // 跟分散輪替型用同一套安全門檻概念：寬裕天數至少要達到區塊天數的等量緩衝，才算真的沒有到期壓力
+
+    const withMeta=selected.map(it=>{
+      const neededDays=it.units*it.blockLen;
+      // 這個品項的區塊必須完整落在「到期日」或「排程結束日」之前，取兩者較早的。
+      const windowEnd = it.expiry ? Math.max(0, Math.min(horizonDays, daysBetween(startDateStr, it.expiry))) : horizonDays;
+      const slack=windowEnd-neededDays; // 寬裕天數：可用時間窗扣掉區塊本身需要的天數
+      const ratio = neededDays>0 ? slack/neededDays : Infinity;
+      return {it, neededDays, windowEnd, slack, ratio};
+    }).sort((a,b)=> a.slack-b.slack); // 寬裕天數越少（越趕）越優先卡位置
+
+    const placements=[]; // {it, start, len}
+    const leftover=[];   // {it, placedDays}
+
+    withMeta.forEach(({it,neededDays,windowEnd,ratio})=>{
+      if(neededDays<=0) return;
+      if(windowEnd<=0){ leftover.push({it, placedDays:0}); return; }
+      const validStarts=[];
+      for(let p=0; p+neededDays<=windowEnd; p++){
+        let ok=true;
+        for(let k=0;k<neededDays;k++){ if(occupied[p+k]!=null){ ok=false; break; } }
+        if(ok) validStarts.push(p);
+      }
+      if(validStarts.length>0){
+        // 安全門檻：寬裕比例夠大（真正安全，不會排擠到其他品項）才完全自由
+        // 隨機選位置；寬裕比例不夠、時間比較緊繃的話，固定選最早的合法位置，
+        // 把行事曆空間盡量留給後面同樣緊繃的品項，不拿任何人的期限冒險。
+        const start = ratio>RATIO_THRESHOLD
+          ? validStarts[Math.floor(Math.random()*validStarts.length)]
+          : validStarts[0];
+        for(let k=0;k<neededDays;k++) occupied[start+k]=it.id;
+        placements.push({it, start, len:neededDays});
+      }else{
+        // 找不到剛好完整長度的空檔：退而求其次，在可用時間窗內找出最長的
+        // 一段連續空檔，能塞多少算多少，剩下的算未完食。
+        let bestStart=-1, bestLen=0, curStart=-1, curLen=0;
+        for(let p=0;p<windowEnd;p++){
+          if(occupied[p]==null){
+            if(curStart===-1) curStart=p;
+            curLen++;
+            if(curLen>bestLen){ bestLen=curLen; bestStart=curStart; }
+          }else{ curStart=-1; curLen=0; }
+        }
+        if(bestLen>0){
+          for(let k=0;k<bestLen;k++) occupied[bestStart+k]=it.id;
+          placements.push({it, start:bestStart, len:bestLen});
+        }
+        leftover.push({it, placedDays:bestLen});
+      }
+    });
+
+    const schedule=[];
+    for(let day=0; day<horizonDays; day++){
+      const dateStr=addDaysStr(startDateStr, day);
+      const id=occupied[day];
+      if(id==null){ schedule.push({date:dateStr, item:null}); continue; }
+      const p=placements.find(pl=>pl.it.id===id && day>=pl.start && day<pl.start+pl.len);
+      const finished = !!(p && day===p.start+p.len-1);
+      schedule.push({date:dateStr, item:p.it, relaxed:false, finished});
+    }
+
+    const expiredLeftover=leftover.map(({it,placedDays})=>{
+      const placedUnits=Math.floor(placedDays/it.blockLen);
+      const leftoverUnits=Math.max(0, it.units-placedUnits);
+      return {id:it.id, name:it.name, leftover:leftoverUnits, expiry:it.expiry};
+    }).filter(x=>x.leftover>0 && x.expiry);
     schedule.expiredLeftover=expiredLeftover;
     return schedule;
   }
@@ -4172,6 +4340,12 @@ document.getElementById('pd-edit-btn').onclick=()=>{
     if(btn.id==='combo-select-chip' || btn.id==='fp-nav-btn') return; // 下拉鈕/隨機配餐鈕不算頁籤
     if(!btn.closest('aside nav')) return; // 只看側邊欄導覽列裡的按鈕
 
+    // 側邊欄所有頁籤（物資管理／寵物資訊／歷史比價牆）其實共用同一個可捲動
+    // 的頁面，切頁籤只是換掉裡面的內容，捲動位置本身不會自動歸零——這就是
+    // 「在某個頁籤捲到很下面，切去另一個頁籤卻好像也停在下面」的原因。
+    // 每個頁籤的捲動進度應該各自獨立，這裡統一在真正切換頁籤的當下重設。
+    window.scrollTo(0,0);
+
     const btns=getNavBtns();
     if(btn===btns[0]){
       // 使用者點的是「物資管理」入口本身——這是唯一「從別的頁籤切回物資管理」
@@ -4549,7 +4723,7 @@ if ('serviceWorker' in navigator) {
 // ══════════════════════════════════════════════════════════════
 (function(){
   'use strict';
-  var APP_VERSION='v1.2';
+  var APP_VERSION='v1.3';
 
   window.__CAT_APP_VERSION=APP_VERSION;
 
