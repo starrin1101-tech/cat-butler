@@ -822,7 +822,7 @@ const J4=[{value:"🐱",label:"🐱 貓咪"},{value:"🐶",label:"🐶 狗狗"},
         </div>
       </div>
       <div id="cat-loader-dots"><span></span><span></span><span></span></div>
-      <div id="cat-loader-version">v1.3</div>
+      <div id="cat-loader-version">v1.4</div>
     </div>
     <style>
       #cat-loader-version{
@@ -2956,7 +2956,7 @@ document.getElementById('pd-edit-btn').onclick=()=>{
   font-size:14.5px;font-weight:600;background:#fff;color:#18181b;outline:none;font-family:inherit;
 }
 .dark .fp-field input{background:#27272a;color:#f4f4f5;border-color:#3f3f46;}
-.fp-end-date-hint{margin:6px 2px 0;font-size:11px;font-weight:500;font-style:italic;color:#a1a1aa;letter-spacing:.01em;}
+.fp-end-date-hint{margin:6px 2px 0;font-size:11px;font-weight:500;font-style:italic;color:#a1a1aa;letter-spacing:.01em;white-space:nowrap;}
 .dark .fp-end-date-hint{color:#71717a;}
 #fp-generate-btn{
   width:100%;margin-top:4px;padding:14px;border:none;border-radius:14px;cursor:pointer;
@@ -3447,7 +3447,7 @@ document.getElementById('pd-edit-btn').onclick=()=>{
       const hz=Math.max(1, parseInt((hzInp&&hzInp.value)||state.horizonDays,10)||1);
       if(!sd){ endHint.textContent=''; return; }
       const endDateStr=addDaysStr(sd, hz-1);
-      endHint.textContent='📅 預計排到 '+endDateStr.replace(/-/g,'/');
+      endHint.textContent='📅 預計排到：'+endDateStr.replace(/-/g,'/');
     }
     if(sdInp) sdInp.addEventListener('input', function(){
       // 防呆：<input type="date"> 手動打字輸入年份時，部分瀏覽器在切到月份
@@ -3778,36 +3778,43 @@ document.getElementById('pd-edit-btn').onclick=()=>{
   function generateBlockSchedule(selectedRaw, startDateStr, horizonDays){
     const selected=selectedRaw.map(it=> Object.assign({}, it, { blockLen: Math.max(1, Math.round(it.blockLen)||1) }));
     const occupied=new Array(horizonDays).fill(null); // null=空，否則放這一天被哪個品項的 id 佔用
-    const RATIO_THRESHOLD=1.0; // 跟分散輪替型用同一套安全門檻概念：寬裕天數至少要達到區塊天數的等量緩衝，才算真的沒有到期壓力
+    // 寬裕天數差距在這個範圍內的品項，處理順序可以隨機洗牌，讓每次「換一種
+    // 排法」的結果不一樣；差距超過這個範圍、急迫程度明顯不同的品項，還是
+    // 照原本正確的優先順序處理，不會被隨機性干擾到安全性。數值跟分散輪替型
+    // 的 RANDOM_BAND_CAP 概念一致。
+    const JITTER=3;
 
     const withMeta=selected.map(it=>{
       const neededDays=it.units*it.blockLen;
       // 這個品項的區塊必須完整落在「到期日」或「排程結束日」之前，取兩者較早的。
       const windowEnd = it.expiry ? Math.max(0, Math.min(horizonDays, daysBetween(startDateStr, it.expiry))) : horizonDays;
       const slack=windowEnd-neededDays; // 寬裕天數：可用時間窗扣掉區塊本身需要的天數
-      const ratio = neededDays>0 ? slack/neededDays : Infinity;
-      return {it, neededDays, windowEnd, slack, ratio};
-    }).sort((a,b)=> a.slack-b.slack); // 寬裕天數越少（越趕）越優先卡位置
+      return {it, neededDays, windowEnd, slack, sortKey: slack+(Math.random()-0.5)*JITTER};
+    }).sort((a,b)=> a.sortKey-b.sortKey); // 寬裕天數越少（越趕）越優先卡位置；差距在容許範圍內的隨機洗牌
 
     const placements=[]; // {it, start, len}
     const leftover=[];   // {it, placedDays}
 
-    withMeta.forEach(({it,neededDays,windowEnd,ratio})=>{
+    withMeta.forEach(({it,neededDays,windowEnd})=>{
       if(neededDays<=0) return;
       if(windowEnd<=0){ leftover.push({it, placedDays:0}); return; }
-      const validStarts=[];
+      // 關鍵修正：一律選「最早的合法位置」，不要在自己整個時間窗裡到處亂選。
+      // 之前的做法是「寬裕的品項可以在自己整個時間窗內完全自由隨機選位置」，
+      // 這樣做的問題是：一個品項的時間窗可能長達好幾個月，隨機一跳就跳到
+      // 很後面的日子，中間明明還有其他勾選的品項庫存可以填，卻被空白晾在
+      // 那裡沒人管——這正是「日期中間出現好幾天無適合品項」的真正原因，
+      // 完全違背「有庫存有空位就該塞滿」的原則。改成永遠使用最早可用的
+      // 合法位置，這樣只要有品項還有庫存、行事曆有空位，就一定會被排進去；
+      // 「隨機性」則移到上面的處理順序（sortKey 的隨機微調）去展現——不同的
+      // 處理順序，一樣能讓最終排出來的行事曆看起來不一樣，但不會產生
+      // 「跳過前面空位」這種不合理的留白。
+      let start=-1;
       for(let p=0; p+neededDays<=windowEnd; p++){
         let ok=true;
         for(let k=0;k<neededDays;k++){ if(occupied[p+k]!=null){ ok=false; break; } }
-        if(ok) validStarts.push(p);
+        if(ok){ start=p; break; }
       }
-      if(validStarts.length>0){
-        // 安全門檻：寬裕比例夠大（真正安全，不會排擠到其他品項）才完全自由
-        // 隨機選位置；寬裕比例不夠、時間比較緊繃的話，固定選最早的合法位置，
-        // 把行事曆空間盡量留給後面同樣緊繃的品項，不拿任何人的期限冒險。
-        const start = ratio>RATIO_THRESHOLD
-          ? validStarts[Math.floor(Math.random()*validStarts.length)]
-          : validStarts[0];
+      if(start!==-1){
         for(let k=0;k<neededDays;k++) occupied[start+k]=it.id;
         placements.push({it, start, len:neededDays});
       }else{
@@ -4723,7 +4730,7 @@ if ('serviceWorker' in navigator) {
 // ══════════════════════════════════════════════════════════════
 (function(){
   'use strict';
-  var APP_VERSION='v1.3';
+  var APP_VERSION='v1.4';
 
   window.__CAT_APP_VERSION=APP_VERSION;
 
