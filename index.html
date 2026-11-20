@@ -822,7 +822,7 @@ const J4=[{value:"🐱",label:"🐱 貓咪"},{value:"🐶",label:"🐶 狗狗"},
         </div>
       </div>
       <div id="cat-loader-dots"><span></span><span></span><span></span></div>
-      <div id="cat-loader-version">v1.5</div>
+      <div id="cat-loader-version">v1.6</div>
     </div>
     <style>
       #cat-loader-version{
@@ -2245,6 +2245,8 @@ document.getElementById('pd-edit-btn').onclick=()=>{
         a.download=`貓管家備份_${new Date().toISOString().slice(0,10)}.json`;
         document.body.appendChild(a);a.click();
         document.body.removeChild(a);URL.revokeObjectURL(url);
+        // 記錄「這次已備份」（時間 + 當下資料指紋），給備份提醒用
+        try{ if(typeof window.__catMarkBackedUp==='function') window.__catMarkBackedUp(); }catch(_){}
       }catch(err){
         console.warn('[貓管家] 匯出失敗',err);
       }
@@ -4720,7 +4722,7 @@ if ('serviceWorker' in navigator) {
 // ══════════════════════════════════════════════════════════════
 (function(){
   'use strict';
-  var APP_VERSION='v1.5';
+  var APP_VERSION='v1.6';
 
   window.__CAT_APP_VERSION=APP_VERSION;
 
@@ -4768,6 +4770,220 @@ if ('serviceWorker' in navigator) {
     var mo2=new MutationObserver(function(){ mount(); });
     mo2.observe(document.documentElement,{childList:true,subtree:true});
   }
+})();
+</script>
+
+<style>
+/* ══════ 備份提醒：側邊欄「上次備份」狀態列 + 左下角小浮動提示 ══════ */
+#cat-backup-status{margin:2px 0 8px;}
+#cat-backup-status .cbs-row{display:flex;align-items:center;gap:7px;font-size:11px;font-weight:700;color:#a1a1aa;line-height:1.35;cursor:default;}
+#cat-backup-status .cbs-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;background:#71717a;}
+#cat-backup-status[data-level="ok"] .cbs-dot{background:#22c55e;box-shadow:0 0 0 3px rgba(34,197,94,.18);}
+#cat-backup-status[data-level="warn"] .cbs-dot{background:#f59e0b;box-shadow:0 0 0 3px rgba(245,158,11,.2);}
+#cat-backup-status[data-level="danger"] .cbs-dot,
+#cat-backup-status[data-level="never"] .cbs-dot{background:#ef4444;box-shadow:0 0 0 3px rgba(239,68,68,.2);}
+#cat-backup-status[data-level="warn"] .cbs-text{color:#fbbf24;}
+#cat-backup-status[data-level="danger"] .cbs-text,
+#cat-backup-status[data-level="never"] .cbs-text{color:#f87171;}
+
+/* 左下角小浮動提示：固定在畫面上，不佔頁面版面、不會把內容往下推 */
+#cat-backup-pill{
+  position:fixed;z-index:40;bottom:16px;left:12px;max-width:calc(100vw - 24px);
+  display:flex;align-items:center;gap:8px;padding:5px 5px 5px 12px;border-radius:9999px;
+  background:#fff;border:1px solid #fecaca;color:#b91c1c;
+  font-size:12.5px;font-weight:700;line-height:1.3;white-space:nowrap;
+  box-shadow:0 6px 20px rgba(0,0,0,.10);
+}
+@media (min-width:768px){ #cat-backup-pill{left:236px;} } /* 避開 220px 寬的側邊欄 */
+@media (max-width:767px){ #cat-backup-pill{bottom:36px;} } /* 手機版左下角有版本號，往上移一點避開 */
+#cat-backup-pill .cbp-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;background:#ef4444;}
+#cat-backup-pill .cbp-text{overflow:hidden;text-overflow:ellipsis;}
+#cat-backup-pill .cbp-export{
+  border:none;cursor:pointer;padding:5px 11px;border-radius:9999px;
+  font-size:12px;font-weight:800;color:#fff;background:#dc2626;flex-shrink:0;
+}
+#cat-backup-pill .cbp-export:hover{background:#b91c1c;}
+#cat-backup-pill .cbp-close{
+  display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border:none;flex-shrink:0;
+  border-radius:9999px;background:transparent;cursor:pointer;color:inherit;opacity:.55;
+}
+#cat-backup-pill .cbp-close:hover{opacity:1;background:rgba(0,0,0,.06);}
+#cat-backup-pill.cbp-warn{border-color:#fde68a;color:#b45309;}
+#cat-backup-pill.cbp-warn .cbp-dot{background:#f59e0b;}
+#cat-backup-pill.cbp-warn .cbp-export{background:#d97706;}
+#cat-backup-pill.cbp-warn .cbp-export:hover{background:#b45309;}
+.dark #cat-backup-pill{background:#1f1416;border-color:#5c2326;color:#fca5a5;}
+.dark #cat-backup-pill.cbp-warn{background:#1f1a10;border-color:#5c4413;color:#fcd34d;}
+.dark #cat-backup-pill .cbp-close:hover{background:rgba(255,255,255,.08);}
+</style>
+<script>
+// ══════════════════════════════════════════════════════════════════
+// 備份提醒：記錄「上次匯出備份」的時間，並在太久沒備份時提醒。
+//  - 側邊欄「本機存檔工具」下方：一行小字顯示上次備份時間（綠/黃/紅小圓點）
+//  - 需要提醒時：畫面左下角出現一個小浮動提示（含「立即匯出」），不佔版面
+// 提醒規則：
+//  - 從來沒匯出過備份 → 提醒
+//  - 距離上次備份 ≥ 7 天，而且備份之後資料有變動 → 提醒（≥14 天紅色、7~13 天黃色）
+//  - 備份之後資料完全沒變，就算很久沒備份也不吵你（舊備份仍然是完整的）
+// 提示可按 ✕「今天先不提醒」，隔天才會再出現。
+// ══════════════════════════════════════════════════════════════════
+(function(){
+  'use strict';
+  var K_AT='cat_last_backup_at';          // 上次備份時間（ISO）
+  var K_FP='cat_last_backup_fp';          // 上次備份當下的資料指紋
+  var K_SNOOZE='cat_backup_snooze_until'; // 「今天先不提醒」到什麼時候為止（毫秒時間戳）
+  // 需要備份的資料（跟「匯出備份」實際會寫進 .json 的內容一致）
+  var DATA_KEYS=['cat_v12_5','cat_pets_v1','cat_weight_v1','cat_adopt_v1','cat_personal_links_v1'];
+  var WARN_DAYS=7, DANGER_DAYS=14;
+  var state={at:null,days:null,changed:true,level:'never',snoozed:false};
+
+  function lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
+  function lsSet(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
+  function lsDel(k){ try{ localStorage.removeItem(k); }catch(e){} }
+  function pad(n){ return (n<10?'0':'')+n; }
+
+  // 資料指紋：把要備份的資料串起來算一個簡單雜湊，用來判斷「備份之後有沒有變動」
+  function fingerprint(){
+    var h=5381, n=0;
+    DATA_KEYS.forEach(function(k){
+      var v=lsGet(k)||'';
+      var s=k+'\u0001'+v+'\u0002';
+      for(var i=0;i<s.length;i++){ h=((h<<5)+h+s.charCodeAt(i))|0; }
+      n+=v.length;
+    });
+    return (h>>>0).toString(36)+'.'+n.toString(36);
+  }
+  function startOfDay(d){ return new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime(); }
+  function daysBetween(then,now){ return Math.round((startOfDay(now)-startOfDay(then))/86400000); }
+  function fullStamp(d){
+    return d.getFullYear()+'/'+pad(d.getMonth()+1)+'/'+pad(d.getDate())+' '+pad(d.getHours())+':'+pad(d.getMinutes());
+  }
+  function whenText(at,days){
+    var hhmm=pad(at.getHours())+':'+pad(at.getMinutes());
+    if(days===0) return '今天 '+hhmm;
+    if(days===1) return '昨天 '+hhmm;
+    return days+' 天前';
+  }
+
+  // 重新讀取狀態並更新畫面
+  function refresh(){
+    var raw=lsGet(K_AT), at=raw?new Date(raw):null;
+    if(at && isNaN(at.getTime())) at=null;
+    state.at=at;
+    state.days=at ? Math.max(0,daysBetween(at,new Date())) : null;
+    var fpSaved=lsGet(K_FP);
+    // 沒有指紋紀錄（例如舊資料）時，保守當作「有變動」
+    state.changed = !at ? true : (fpSaved ? fpSaved!==fingerprint() : true);
+    state.level = !at ? 'never' : state.days>=DANGER_DAYS ? 'danger' : state.days>=WARN_DAYS ? 'warn' : 'ok';
+    state.snoozed = parseInt(lsGet(K_SNOOZE)||'0',10) > Date.now();
+    render();
+  }
+
+  // 匯出備份成功後由 patchExport 呼叫：記下時間與資料指紋
+  window.__catMarkBackedUp=function(){
+    lsSet(K_AT,new Date().toISOString());
+    lsSet(K_FP,fingerprint());
+    lsDel(K_SNOOZE);
+    refresh();
+  };
+
+  function shouldShowPill(){
+    if(state.snoozed) return false;
+    if(state.level==='never') return true;
+    return state.level!=='ok' && state.changed;
+  }
+
+  var ICON_X='<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+
+  // 觸發既有的「匯出備份 (.json)」按鈕（沿用原本的匯出流程，匯出成功才會記錄）
+  function doExport(){
+    var btns=document.querySelectorAll('aside button');
+    for(var i=0;i<btns.length;i++){
+      if(btns[i].textContent.indexOf('匯出備份')!==-1){ btns[i].click(); return; }
+    }
+  }
+  function snoozeToday(){
+    var d=new Date(); d.setHours(24,0,0,0); // 明天 00:00
+    lsSet(K_SNOOZE,String(d.getTime()));
+    refresh();
+  }
+
+  // 側邊欄：一行小字（備份後有新變動的資訊放在滑鼠提示裡，不佔畫面）
+  function renderStatus(){
+    var hs=document.querySelectorAll('aside h5'), heading=null;
+    for(var i=0;i<hs.length;i++){ if(hs[i].textContent.indexOf('本機存檔工具')!==-1){ heading=hs[i]; break; } }
+    if(!heading) return;
+    var el=document.getElementById('cat-backup-status');
+    if(!el){
+      el=document.createElement('div');
+      el.id='cat-backup-status';
+      el.innerHTML='<div class="cbs-row"><span class="cbs-dot"></span><span class="cbs-text"></span></div>';
+    }
+    if(el.previousElementSibling!==heading) heading.insertAdjacentElement('afterend',el);
+    if(el.getAttribute('data-level')!==state.level) el.setAttribute('data-level',state.level);
+    var text=state.at ? '上次備份：'+whenText(state.at,state.days) : '尚未備份過';
+    var t=el.querySelector('.cbs-text');
+    if(t.textContent!==text) t.textContent=text;
+    var title = state.at
+      ? '上次備份時間：'+fullStamp(state.at)+(state.changed?'\n備份之後有新的變動':'\n備份之後沒有新的變動')
+      : '還沒有匯出過備份，資料只存在這個瀏覽器';
+    var row=el.querySelector('.cbs-row');
+    if(row.title!==title) row.title=title;
+  }
+
+  // 左下角小浮動提示（直接掛在 <body> 上，React 重新渲染不會影響到它）
+  function renderPill(){
+    var p=document.getElementById('cat-backup-pill');
+    if(!shouldShowPill() || !document.body){ if(p) p.remove(); return; }
+    if(!p){
+      p=document.createElement('div');
+      p.id='cat-backup-pill';
+      p.setAttribute('role','status');
+      p.innerHTML=
+        '<span class="cbp-dot"></span><span class="cbp-text"></span>'+
+        '<button type="button" class="cbp-export">立即匯出</button>'+
+        '<button type="button" class="cbp-close" title="今天先不提醒" aria-label="今天先不提醒">'+ICON_X+'</button>';
+      p.querySelector('.cbp-export').addEventListener('click',doExport);
+      p.querySelector('.cbp-close').addEventListener('click',snoozeToday);
+      document.body.appendChild(p);
+    }
+    var cls='cbp-'+(state.level==='warn'?'warn':'danger');
+    if(p.getAttribute('data-cls')!==cls){ p.className=cls; p.setAttribute('data-cls',cls); }
+    var msg = state.level==='never' ? '尚未備份過' : '已 '+state.days+' 天沒備份';
+    var t=p.querySelector('.cbp-text');
+    if(t.textContent!==msg) t.textContent=msg;
+    var title = state.level==='never'
+      ? '尚未匯出過備份：資料只存在此瀏覽器，請立即匯出'
+      : '已經 '+state.days+' 天沒有備份，之後新增或修改的資料還沒有備份（資料只存在此瀏覽器）';
+    if(p.title!==title) p.title=title;
+  }
+
+  function render(){ renderStatus(); renderPill(); }
+
+  // 側邊欄是 React 渲染的，載入或重新掛載時要把我們插進去的那一行補上。
+  // 只用「已經算好的狀態」重畫（很便宜）。
+  function statusOk(){
+    var el=document.getElementById('cat-backup-status');
+    var prev=el && el.previousElementSibling;
+    return !!(prev && prev.tagName==='H5' && prev.textContent.indexOf('本機存檔工具')!==-1);
+  }
+  var debounce=null;
+  new MutationObserver(function(){
+    // 快速路徑：那一行還沒插、或被 React 重繪弄不見了，就「馬上」補。
+    // MutationObserver 的回呼發生在瀏覽器下一次畫面繪製之前，所以補上的內容
+    // 會跟側邊欄同一幀出現，不會有「晚一拍」。（之前全部都走 debounce，
+    // 載入期間畫面一直在變動時，會一直被往後推遲，那一行才會慢慢才冒出來。）
+    if(!statusOk()) renderStatus();
+    // 其餘更新（文字、浮動提示）才走 debounce，避免變成效能負擔。
+    clearTimeout(debounce);
+    debounce=setTimeout(render,80);
+  }).observe(document.documentElement,{childList:true,subtree:true});
+
+  refresh();
+  setInterval(refresh,60000);                       // 跨過午夜、或資料有變動時更新判斷
+  window.addEventListener('focus',refresh);
+  window.addEventListener('storage',refresh);
+  document.addEventListener('visibilitychange',function(){ if(!document.hidden) refresh(); });
 })();
 </script>
 
